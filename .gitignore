@@ -1,3 +1,5 @@
+webapp/downloads/
+webapp/uploads/
 __pycache__/
 *.py[cod]
 *$py.class
