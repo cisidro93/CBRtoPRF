@@ -189,14 +189,24 @@ def main(page):
                 items = sorted(os.listdir(start_path))
                 for item in items:
                     full_path = os.path.join(start_path, item)
-                    if os.path.isdir(full_path):
+                    is_dir = os.path.isdir(full_path)
+                    
+                    if is_dir:
                         file_list.controls.append(
-                            ft.OutlinedButton(f"[DIR]  {item}", on_click=lambda _, p=full_path: navigate(p), width=300)
+                            ft.OutlinedButton(f"📂 {item}", on_click=lambda _, p=full_path: navigate(p), width=300)
                         )
-                    elif item.lower().endswith('.cbz'):
-                        file_list.controls.append(
-                            ft.ElevatedButton(f"[FILE] {item}", on_click=lambda _, p=full_path: select(p), width=300, bgcolor="blue", color="white")
-                        )
+                    else:
+                        # IT IS A FILE - Show all of them
+                        if item.lower().endswith('.cbz'):
+                            # Valid CBZ
+                            file_list.controls.append(
+                                ft.ElevatedButton(f"📄 {item}", on_click=lambda _, p=full_path: select(p), width=300, bgcolor="blue", color="white")
+                            )
+                        else:
+                            # Other File (Debug visibility)
+                            file_list.controls.append(
+                                ft.ElevatedButton(f"⬜ {item}", on_click=lambda _, p=full_path: select(p), width=300, bgcolor="grey", color="white")
+                            )
                         
         except Exception as e:
             file_list.controls.append(ft.Text(f"Access Error: {e}", color="red"))
