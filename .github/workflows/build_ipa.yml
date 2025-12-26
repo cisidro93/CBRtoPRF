@@ -28,9 +28,33 @@ jobs:
         run: |
           cp requirements_mobile.txt requirements.txt
           yes | flet build ipa . --verbose
+          
+      - name: Debug Build Output
+        run: |
+          echo "Listing build directory..."
+          find build -maxdepth 4 || echo "Build dir not found"
+
+      - name: Package Unsigned IPA (Manual)
+        run: |
+          # If Flet made an xcarchive but no IPA (common for unsigned), we package it manually
+          mkdir -p dist
+          
+          # Try to find the .app inside the xcarchive
+          APP_PATH=$(find build -name "Runner.app" | head -n 1)
+          
+          if [ -n "$APP_PATH" ]; then
+            echo "Found app at: $APP_PATH"
+            mkdir -p Payload
+            cp -r "$APP_PATH" Payload/
+            zip -r dist/app.ipa Payload
+            echo "Successfully packaged dist/app.ipa"
+          else
+            echo "No Runner.app found. Build likely failed."
+            exit 1
+          fi
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: ios-build
-          path: build/ipa/*.ipa
+          path: dist/*.ipa
