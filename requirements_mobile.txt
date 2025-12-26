@@ -1,3 +1,2 @@
 flet
-img2pdf
 Pillow
