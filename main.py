@@ -109,10 +109,17 @@ def main(page):
         picker = ft.FilePicker()
         picker.on_result = on_pick
         page.overlay.append(picker)
+        page.update() # Register picker immediately
         
+        def safe_pick_files(e):
+            try:
+                picker.pick_files(allow_multiple=False, allowed_extensions=["cbz"])
+            except Exception as ex:
+                log(f"PICKER ERROR: {ex}", "red")
+
         page.add(
             ft.Column([
-                ft.ElevatedButton("Select CBZ File", icon=ft.icons.FOLDER, on_click=lambda _: picker.pick_files(allow_multiple=False, allowed_extensions=["cbz"])),
+                ft.ElevatedButton("Select CBZ File", icon=ft.icons.FOLDER, on_click=safe_pick_files),
                 ft.ElevatedButton("Convert to PDF", icon=ft.icons.PICTURE_AS_PDF, on_click=run_convert),
                 progress_bar,
                 status_txt
