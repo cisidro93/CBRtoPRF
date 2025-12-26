@@ -7,25 +7,23 @@ import time
 conversion_engine = None
 
 def main(page):
-    page.title = "CBZ Converter (No Picker)"
+    page.title = "CBZ Converter (Hybrid)"
     page.scroll = "auto"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.padding = 30
     
     # 1. Boot Message
-    boot_text = ft.Text("System Boot: Initializing (Safe Mode)...", color="blue", size=20, weight="bold")
+    boot_text = ft.Text("System Boot: Initializing...", color="blue", size=20, weight="bold")
     log_column = ft.Column(scroll="auto")
     page.add(boot_text, log_column)
-    
-    # --- NO FILE PICKER HERE ---
-    
+
     def log(msg, color="black"):
         print(msg)
         log_column.controls.append(ft.Text(msg, color=color, size=14))
         page.update()
 
     log(f"Python: {sys.version}")
-    log("Safe Mode: FilePicker Disabled.")
+    log("Mode: Hybrid (Manual + Optional Picker)")
     
     def load_engine_click(e):
         global conversion_engine
@@ -52,15 +50,54 @@ def main(page):
 
     def launch_app_ui():
         page.clean()
-        page.add(ft.Text("CBZ to PDF (Manual Input)", size=24, weight="bold"))
+        page.add(ft.Text("CBZ to PDF Converter", size=24, weight="bold"))
         
         # UI Components
-        # Replacement for FilePicker
-        path_input = ft.TextField(label="Enter File Path (/storage/...)", width=300)
-        
+        path_input = ft.TextField(label="File Path", width=300, hint_text="/storage/emulated/0/Download/comic.cbz")
         progress_bar = ft.ProgressBar(width=300, visible=False)
-        status_txt = ft.Text("Ready. Enter path manually.", color="green")
+        status_txt = ft.Text("Ready. Select file or type path.", color="green")
         
+        # --- PICKER LOGIC ---
+        picker_ref = ft.Ref[ft.FilePicker]()
+        
+        def on_picker_result(e):
+            if e.files:
+                path_input.value = e.files[0].path
+                status_txt.value = "File Selected!"
+                page.update()
+        
+        def enable_picker_click(e):
+            try:
+                status_txt.value = "Initializing Picker..."
+                status_txt.color = "blue"
+                page.update()
+                
+                # Dynamic Creation
+                p = ft.FilePicker()
+                p.on_result = on_picker_result
+                picker_ref.current = p
+                
+                page.overlay.append(p)
+                page.update() # This is the critical moment
+                
+                # If we get here, it worked
+                status_txt.value = "Picker Enabled!"
+                status_txt.color = "green"
+                
+                # Show Select Button
+                btn_pick_container.content = ft.ElevatedButton("Select CBZ File", on_click=lambda _: p.pick_files(allow_multiple=False, allowed_extensions=["cbz"]))
+                page.update()
+                
+            except Exception as ex:
+                status_txt.value = f"Picker Failed: {ex}"
+                status_txt.color = "red"
+                page.update()
+                
+        # Container to swap "Enable" -> "Select"
+        btn_pick_container = ft.Container(
+            content=ft.ElevatedButton("Enable File Picker", on_click=enable_picker_click)
+        )
+
         def on_progress(p, msg):
             progress_bar.value = p/100
             status_txt.value = msg
@@ -98,8 +135,9 @@ def main(page):
         
         page.add(
             ft.Column([
-                ft.Container(height=20),
                 path_input,
+                ft.Container(height=10),
+                btn_pick_container, # Dynamic button
                 ft.Container(height=10),
                 ft.ElevatedButton("Convert to PDF", on_click=run_convert),
                 ft.Container(height=20),
