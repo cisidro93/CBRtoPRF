@@ -26,6 +26,7 @@ jobs:
 
       - name: Build IPA (Unsigned)
         run: |
+          cp requirements_mobile.txt requirements.txt
           yes | flet build ipa . --verbose
 
       - name: Upload IPA
