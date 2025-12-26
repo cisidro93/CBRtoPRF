@@ -148,8 +148,13 @@ def main(page):
         # Build List
         try:
             parent = os.path.dirname(start_path)
+            
+            # Navigation Helpers
             file_list.controls.append(
-                ft.ElevatedButton(".. (UP ONE LEVEL)", on_click=lambda _: navigate(parent), width=300, bgcolor="grey", color="white")
+                ft.Row([
+                    ft.ElevatedButton(".. (UP)", on_click=lambda _: navigate(parent), expand=True, bgcolor="grey", color="white"),
+                    ft.ElevatedButton("/storage (ROOT)", on_click=lambda _: navigate("/storage"), expand=True, bgcolor="orange", color="white"),
+                ])
             )
             
             items = sorted(os.listdir(start_path))
