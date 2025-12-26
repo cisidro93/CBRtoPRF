@@ -17,6 +17,10 @@ def main(page):
     state = {
         "current_path": "/storage/emulated/0/Download",
         "selected_file": "/storage/emulated/0/Download",
+        "compress_enabled": False,
+        "email_sender": "",
+        "email_password": "",
+        "email_recipient": ""
     }
     
     # 1. Boot Message
@@ -55,6 +59,37 @@ def main(page):
             log(f"IMPORT ERROR: {e}", "red")
             btn_load.disabled = False
 
+    # --- SETTINGS SCREEN ---
+    def show_settings_ui():
+        page.clean()
+        
+        txt_sender = ft.TextField(label="Your Gmail", value=state["email_sender"])
+        txt_pass = ft.TextField(label="App Password", value=state["email_password"], password=True, can_reveal_password=True)
+        txt_kindle = ft.TextField(label="Kindle Email", value=state["email_recipient"])
+        
+        def save_settings(e):
+            state["email_sender"] = txt_sender.value
+            state["email_password"] = txt_pass.value
+            state["email_recipient"] = txt_kindle.value
+            show_main_ui()
+            
+        def cancel_settings(e):
+            show_main_ui()
+            
+        page.add(
+            ft.Text("Settings", size=24, weight="bold"),
+            ft.Text("Kindle / Email Configuration", size=16, weight="bold"),
+            txt_sender,
+            txt_pass,
+            txt_kindle,
+            ft.Container(height=20),
+            ft.Row([
+                ft.ElevatedButton("Save", on_click=save_settings, bgcolor="blue", color="white"),
+                ft.TextButton("Cancel", on_click=cancel_settings)
+            ])
+        )
+        page.update()
+
     # --- MAIN CONVERTER SCREEN ---
     def show_main_ui():
         page.clean()
@@ -64,16 +99,29 @@ def main(page):
             value=state["selected_file"], 
             expand=True
         )
+        
+        # New Feature Controls
+        sw_compress = ft.Switch(
+            label="Compress PDF (Max 50MB)", 
+            value=state["compress_enabled"],
+            on_change=lambda e: state.update({"compress_enabled": e.control.value})
+        )
+        
         progress_bar = ft.ProgressBar(width=300, visible=False)
-        status_txt = ft.Text("Ready. Browse or type path.", color="green")
+        # Using a Row to hold status text and percent for better layout
+        status_txt = ft.Text("Ready.", color="green")
+        percent_txt = ft.Text("", weight="bold")
         
         def on_browse_click(e):
             show_browser_ui(state["current_path"])
 
+        def on_settings_click(e):
+            show_settings_ui()
+
         def on_progress(p, msg):
             progress_bar.value = p/100
             status_txt.value = msg
-            status_txt.update()
+            percent_txt.value = f"{int(p)}%"
             page.update()
             
         def run_convert(e):
@@ -87,18 +135,52 @@ def main(page):
             state["selected_file"] = src # Save manually typed path
             dst = src.replace(".cbz", ".pdf")
             
-            status_txt.value = f"Converting: {os.path.basename(src)}"
+            status_txt.value = f"Starting..."
             status_txt.color = "black"
+            percent_txt.value = "0%"
             progress_bar.visible = True
             page.update()
             
             import threading
             def worker():
                 try:
-                    conversion_engine(src, dst, progress_callback=on_progress)
+                    # 1. Conversion
+                    success = conversion_engine(
+                        src, 
+                        dst, 
+                        progress_callback=on_progress,
+                        compress=state["compress_enabled"],
+                        max_size_mb=50 # Hardcoded mobile limit
+                    )
+                    
+                    if success is False:
+                         raise Exception("Conversion returned False")
+
                     status_txt.value = "Conversion Complete!"
                     status_txt.color = "green"
                     page.update()
+                    
+                    # 2. Email (if configured)
+                    if state["email_sender"] and state["email_recipient"]:
+                        on_progress(100, "Sending to Kindle...")
+                        try:
+                            import email_sender
+                            sent, msg = email_sender.send_email(
+                                dst, 
+                                state["email_sender"], 
+                                state["email_password"], 
+                                state["email_recipient"]
+                            )
+                            if sent:
+                                status_txt.value = "Done + Sent to Kindle!"
+                            else:
+                                status_txt.value = f"Done, but Email Failed: {msg}"
+                        except ImportError:
+                             status_txt.value = "Done (Email module missing)"
+                        except Exception as e:
+                             status_txt.value = f"Done (Email error: {e})"
+                        page.update()
+
                 except Exception as e:
                     status_txt.value = f"Error: {e}"
                     status_txt.color = "red"
@@ -107,17 +189,21 @@ def main(page):
             threading.Thread(target=worker).start()
             
         page.add(
-            ft.Text("CBZ to PDF Converter", size=24, weight="bold"),
+            ft.Row([
+                ft.Text("CBZ to PDF", size=24, weight="bold"),
+                ft.IconButton(ft.icons.SETTINGS, on_click=on_settings_click) 
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Container(height=10),
             ft.Row([
                 path_input,
                 ft.ElevatedButton("Browse", on_click=on_browse_click)
             ]),
+            sw_compress,
             ft.Container(height=10),
-            ft.ElevatedButton("Convert to PDF", on_click=run_convert),
+            ft.ElevatedButton("Convert to PDF", on_click=run_convert, width=200),
             ft.Container(height=20),
             progress_bar,
-            status_txt
+            ft.Row([percent_txt, status_txt], spacing=10)
         )
         page.update()
 
