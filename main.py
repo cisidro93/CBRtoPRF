@@ -7,35 +7,17 @@ import time
 conversion_engine = None
 
 def main(page):
-    page.title = "CBZ Converter"
+    page.title = "CBZ Converter (No Picker)"
     page.scroll = "auto"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.padding = 30
     
-    # 1. Immediate Boot Message
-    boot_text = ft.Text("System Boot: Initializing...", color="blue", size=20, weight="bold")
+    # 1. Boot Message
+    boot_text = ft.Text("System Boot: Initializing (Safe Mode)...", color="blue", size=20, weight="bold")
     log_column = ft.Column(scroll="auto")
     page.add(boot_text, log_column)
-    page.update()
     
-    # 2. Safe Picker Setup
-    status_txt_ref = ft.Ref[ft.Text]()
-    selected_file_path = ft.Ref[str]()
-    
-    def on_pick(e):
-        if e.files:
-            path = e.files[0].path
-            selected_file_path.current = path
-            if status_txt_ref.current:
-                status_txt_ref.current.value = f"Selected: {path}"
-                status_txt_ref.current.color = "blue"
-                status_txt_ref.current.update()
-
-    # FIX: Instantiate first, assign property second
-    picker = ft.FilePicker()
-    picker.on_result = on_pick
-    page.overlay.append(picker)
-    page.update()
+    # --- NO FILE PICKER HERE ---
     
     def log(msg, color="black"):
         print(msg)
@@ -43,7 +25,7 @@ def main(page):
         page.update()
 
     log(f"Python: {sys.version}")
-    log("FilePicker: Registered successfully.")
+    log("Safe Mode: FilePicker Disabled.")
     
     def load_engine_click(e):
         global conversion_engine
@@ -69,31 +51,33 @@ def main(page):
             btn_load.disabled = False
 
     def launch_app_ui():
-        page.clean() # We can try cleaning now that we are stable
-        page.add(ft.Text("CBZ to PDF Converter", size=24, weight="bold"))
+        page.clean()
+        page.add(ft.Text("CBZ to PDF (Manual Input)", size=24, weight="bold"))
         
         # UI Components
+        # Replacement for FilePicker
+        path_input = ft.TextField(label="Enter File Path (/storage/...)", width=300)
+        
         progress_bar = ft.ProgressBar(width=300, visible=False)
-        status_txt = ft.Text("Ready. Select a file.", color="green", ref=status_txt_ref)
+        status_txt = ft.Text("Ready. Enter path manually.", color="green")
         
         def on_progress(p, msg):
             progress_bar.value = p/100
-            if status_txt_ref.current:
-                status_txt_ref.current.value = msg
-                status_txt_ref.current.update()
+            status_txt.value = msg
+            status_txt.update()
             page.update()
             
         def run_convert(e):
-            if not selected_file_path.current:
-                status_txt.value = "Please select a file first."
+            src = path_input.value
+            if not src:
+                status_txt.value = "Enter a path first."
                 status_txt.color = "red"
                 page.update()
                 return
             
-            src = selected_file_path.current
             dst = src.replace(".cbz", ".pdf")
             
-            status_txt.value = "Starting conversion..."
+            status_txt.value = f"Converting: {src}"
             status_txt.color = "black"
             progress_bar.visible = True
             page.update()
@@ -112,16 +96,10 @@ def main(page):
             
             threading.Thread(target=worker).start()
         
-        def safe_pick(e):
-            try:
-                picker.pick_files(allow_multiple=False, allowed_extensions=["cbz"])
-            except Exception as ex:
-                status_txt.value = f"Picker Error: {ex}"
-        
         page.add(
             ft.Column([
                 ft.Container(height=20),
-                ft.ElevatedButton("Select CBZ File", on_click=safe_pick),
+                path_input,
                 ft.Container(height=10),
                 ft.ElevatedButton("Convert to PDF", on_click=run_convert),
                 ft.Container(height=20),
