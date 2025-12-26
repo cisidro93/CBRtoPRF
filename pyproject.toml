@@ -3,8 +3,6 @@ product_name = "CBZ Converter"
 org = "com.antigravity"
 url = "https://github.com/chisidro93/cbz_to_pdf"
 
-[tool.flet.app]
-path = "main.py"
 
 [tool.flet.android.permission]
 "android.permission.READ_EXTERNAL_STORAGE" = true
