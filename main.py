@@ -92,11 +92,14 @@ def main(page):
 
     # --- MAIN CONVERTER SCREEN ---
     # --- MAIN CONVERTER SCREEN ---
+    # --- MAIN CONVERTER SCREEN ---
     def show_main_ui():
         try:
+            log("Entering UI Build...")
             page.clean()
             
             # --- Native Picker Setup (iOS/Desktop) ---
+            log("Init Picker...")
             def on_dialog_result(e: ft.FilePickerResultEvent):
                 if e.files:
                     selected_path = e.files[0].path
@@ -110,9 +113,12 @@ def main(page):
                     page.update()
 
             file_picker = ft.FilePicker(on_result=on_dialog_result)
+            
+            log("Adding Picker to Overlay...")
             page.overlay.append(file_picker)
             page.update()
             
+            log("Building Controls...")
             path_input = ft.TextField(
                 label="File Path", 
                 value=state["selected_file"], 
@@ -205,6 +211,7 @@ def main(page):
                 
                 threading.Thread(target=worker).start()
                 
+            log("Adding Controls to Page...")
             # Layout
             page.add(
                 ft.Row([
@@ -226,6 +233,7 @@ def main(page):
                 ft.Row([percent_txt, status_txt], spacing=10)
             )
             page.update()
+            log("UI Build Complete!", "green")
             
         except Exception as e:
             log(f"UI ERROR: {e}", "red")
