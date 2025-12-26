@@ -119,8 +119,8 @@ def main(page):
 
         page.add(
             ft.Column([
-                ft.ElevatedButton("Select CBZ File", icon=ft.icons.FOLDER, on_click=safe_pick_files),
-                ft.ElevatedButton("Convert to PDF", icon=ft.icons.PICTURE_AS_PDF, on_click=run_convert),
+                ft.ElevatedButton("Select CBZ File", on_click=safe_pick_files),
+                ft.ElevatedButton("Convert to PDF", on_click=run_convert),
                 progress_bar,
                 status_txt
             ])
