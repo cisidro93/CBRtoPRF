@@ -106,7 +106,8 @@ def main(page):
                 status_txt.value = f"Selected: {path}"
                 page.update()
 
-        picker = ft.FilePicker(on_result=on_pick)
+        picker = ft.FilePicker()
+        picker.on_result = on_pick
         page.overlay.append(picker)
         
         page.add(
