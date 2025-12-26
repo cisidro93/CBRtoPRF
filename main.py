@@ -12,6 +12,28 @@ def main(page):
     page.theme_mode = ft.ThemeMode.LIGHT
     page.padding = 30
     
+    # --- REFS & PICKER SETUP (Pre-init) ---
+    # We define these early to avoid "Unknown Control" errors with dynamic adding
+    status_txt_ref = ft.Ref[ft.Text]()
+    selected_file_path = ft.Ref[str]()
+    
+    def on_pick(e):
+        if e.files:
+            path = e.files[0].path
+            selected_file_path.current = path
+            
+            # Update UI if available
+            if status_txt_ref.current:
+                status_txt_ref.current.value = f"Selected: {path}"
+                status_txt_ref.current.color = "blue"
+                page.update()
+
+    # CRITICAL: Add picker to overlay IMMEDIATELY
+    picker = ft.FilePicker()
+    picker.on_result = on_pick
+    page.overlay.append(picker)
+    
+    # --- BOOTLOADER UI ---
     log_column = ft.Column(scroll="auto")
     
     def log(msg, color="black"):
@@ -20,7 +42,7 @@ def main(page):
         page.update()
 
     page.add(
-        ft.Text("System Boot", size=24, weight="bold", color="blue"),
+        ft.Text("System Boot (Picker Ready)", size=24, weight="bold", color="blue"),
         ft.Text(f"Python: {sys.version}", size=12),
         ft.Divider(),
         log_column
@@ -36,14 +58,11 @@ def main(page):
         log("Attempting Manual Import...")
         
         try:
-            # Import directly on main thread to catch errors synchronously
             import cbz_to_pdf
             
             if hasattr(cbz_to_pdf, 'convert_cbz_to_pdf'):
                 conversion_engine = cbz_to_pdf.convert_cbz_to_pdf
                 log("Import Successful!", "green")
-                
-                # Launch App
                 launch_app_ui()
             else:
                 log("Error: convert_cbz_to_pdf function missing", "red")
@@ -63,30 +82,29 @@ def main(page):
         page.add(ft.Divider(), ft.Text("--- Converter Ready ---", color="green", weight="bold"))
         
         # --- APP UI ---
-        selected_file = ft.Ref[str]()
-        status_txt = ft.Text("Ready.", color="green", size=16)
         progress_bar = ft.ProgressBar(width=300, visible=False)
+        # Use the Ref defined earlier
+        status_txt = ft.Text("Ready.", color="green", size=16, ref=status_txt_ref)
         
         def on_progress(p, msg):
             progress_bar.value = p/100
-            status_txt.value = msg
+            if status_txt_ref.current:
+                status_txt_ref.current.value = msg
             page.update()
             
         def run_convert(e):
-            if not selected_file.current:
+            if not selected_file_path.current:
                 status_txt.value = "Select file first!"
                 page.update()
                 return
             
-            src = selected_file.current
+            src = selected_file_path.current
             dst = src.replace(".cbz", ".pdf")
             
             status_txt.value = "Starting..."
             progress_bar.visible = True
             page.update()
             
-            # Run conversion in thread to avoid freezing UI *during* conversion
-            # But we passed the import stage already
             import threading
             def worker():
                 try:
@@ -99,18 +117,6 @@ def main(page):
             
             threading.Thread(target=worker).start()
 
-        def on_pick(e):
-            if e.files:
-                path = e.files[0].path
-                selected_file.current = path
-                status_txt.value = f"Selected: {path}"
-                page.update()
-
-        picker = ft.FilePicker()
-        picker.on_result = on_pick
-        page.overlay.append(picker)
-        page.update() # Register picker immediately
-        
         def safe_pick_files(e):
             try:
                 picker.pick_files(allow_multiple=False, allowed_extensions=["cbz"])
@@ -126,7 +132,7 @@ def main(page):
             ])
         )
         page.update()
-
+    
     btn_load = ft.ElevatedButton("LOAD ENGINE", on_click=load_engine_click, bgcolor="blue", color="white")
     page.add(btn_load)
     page.update()
