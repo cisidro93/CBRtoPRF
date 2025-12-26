@@ -74,7 +74,8 @@ def main(page):
     def launch_app_ui():
         try:
             log("Launching Main UI...")
-            page.clean()
+            # page.clean() # Keep logs for debug
+            page.add(ft.Divider(), ft.Text("--- Main App Below ---", color="blue"))
             
             # --- APP UI ---
             page.title = "CBZ Converter"
