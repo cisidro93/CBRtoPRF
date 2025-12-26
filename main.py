@@ -121,14 +121,32 @@ def main(page):
         )
         page.update()
 
+    # --- HELPER: Detect SD Cards ---
+    def get_android_drives():
+        drives = set()
+        drives.add("/storage/emulated/0") # Internal Default
+        
+        try:
+            with open("/proc/mounts", "r") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) > 1:
+                        mount_point = parts[1]
+                        # Look for storage mounts
+                        if mount_point.startswith("/storage") and mount_point != "/storage":
+                            # Avoid duplicates like /storage/self/primary
+                            if "self" not in mount_point and "emulated" not in mount_point:
+                                drives.add(mount_point)
+        except Exception as e:
+            print(f"Error reading mounts: {e}")
+            
+        return sorted(list(drives))
+
     # --- FULL PAGE FILE BROWSER ---
     def show_browser_ui(start_path):
         page.clean()
         
-        # Ensure path exists
-        if not os.path.exists(start_path):
-            start_path = "/storage/emulated/0"
-        
+        # State Update
         state["current_path"] = start_path
         
         file_list = ft.Column(scroll="auto", expand=True)
@@ -147,29 +165,43 @@ def main(page):
 
         # Build List
         try:
-            parent = os.path.dirname(start_path)
-            
-            # Navigation Helpers
-            file_list.controls.append(
-                ft.Row([
-                    ft.ElevatedButton(".. (UP)", on_click=lambda _: navigate(parent), expand=True, bgcolor="grey", color="white"),
-                    ft.ElevatedButton("/storage (ROOT)", on_click=lambda _: navigate("/storage"), expand=True, bgcolor="orange", color="white"),
-                ])
-            )
-            
-            items = sorted(os.listdir(start_path))
-            for item in items:
-                full_path = os.path.join(start_path, item)
-                if os.path.isdir(full_path):
-                    file_list.controls.append(
-                        ft.OutlinedButton(f"[DIR]  {item}", on_click=lambda _, p=full_path: navigate(p), width=300)
+            # SPECIAL CASE: ROOT STORAGE SELECTION
+            if start_path == "/storage":
+                file_list.controls.append(ft.Text("Detected Storage Volumes:", weight="bold"))
+                
+                drives = get_android_drives()
+                for drive in drives:
+                     file_list.controls.append(
+                        ft.ElevatedButton(f"💾 {drive}", on_click=lambda _, p=drive: navigate(p), width=300, bgcolor="orange", color="white")
                     )
-                elif item.lower().endswith('.cbz'):
-                    file_list.controls.append(
-                        ft.ElevatedButton(f"[FILE] {item}", on_click=lambda _, p=full_path: select(p), width=300, bgcolor="blue", color="white")
-                    )
+            else:
+                # Normal Directory Listing
+                parent = os.path.dirname(start_path)
+                
+                # Navigation Helpers
+                file_list.controls.append(
+                    ft.Row([
+                        ft.ElevatedButton(".. (UP)", on_click=lambda _: navigate(parent), expand=True, bgcolor="grey", color="white"),
+                        ft.ElevatedButton("Switch Drive", on_click=lambda _: navigate("/storage"), expand=True, bgcolor="orange", color="white"),
+                    ])
+                )
+                
+                items = sorted(os.listdir(start_path))
+                for item in items:
+                    full_path = os.path.join(start_path, item)
+                    if os.path.isdir(full_path):
+                        file_list.controls.append(
+                            ft.OutlinedButton(f"[DIR]  {item}", on_click=lambda _, p=full_path: navigate(p), width=300)
+                        )
+                    elif item.lower().endswith('.cbz'):
+                        file_list.controls.append(
+                            ft.ElevatedButton(f"[FILE] {item}", on_click=lambda _, p=full_path: select(p), width=300, bgcolor="blue", color="white")
+                        )
+                        
         except Exception as e:
-            file_list.controls.append(ft.Text(f"Error listing files: {e}", color="red"))
+            file_list.controls.append(ft.Text(f"Access Error: {e}", color="red"))
+            # Fallback to drive list if we hit a wall
+            file_list.controls.append(ft.ElevatedButton("Go to Detected Drives", on_click=lambda _: navigate("/storage"), bgcolor="orange", color="white"))
 
         page.add(
             ft.Text("Select File", size=24, weight="bold"),
