@@ -1,5 +1,6 @@
 import flet as ft
 import sys
+import os
 import traceback
 import time
 
@@ -7,23 +8,23 @@ import time
 conversion_engine = None
 
 def main(page):
-    page.title = "CBZ Converter (Hybrid)"
+    page.title = "CBZ Converter (Native Browser)"
     page.scroll = "auto"
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.padding = 30
+    page.padding = 20
     
     # 1. Boot Message
-    boot_text = ft.Text("System Boot: Initializing...", color="blue", size=20, weight="bold")
+    boot_text = ft.Text("System Boot: Initializing...", color="blue", size=16, weight="bold")
     log_column = ft.Column(scroll="auto")
     page.add(boot_text, log_column)
 
     def log(msg, color="black"):
         print(msg)
-        log_column.controls.append(ft.Text(msg, color=color, size=14))
+        log_column.controls.append(ft.Text(msg, color=color, size=12))
         page.update()
 
     log(f"Python: {sys.version}")
-    log("Mode: Hybrid (Manual + Optional Picker)")
+    log("Mode: Custom File Browser (No Crash)")
     
     def load_engine_click(e):
         global conversion_engine
@@ -53,50 +54,90 @@ def main(page):
         page.add(ft.Text("CBZ to PDF Converter", size=24, weight="bold"))
         
         # UI Components
-        path_input = ft.TextField(label="File Path", width=300, hint_text="/storage/emulated/0/Download/comic.cbz")
+        path_input = ft.TextField(label="File Path", value="/storage/emulated/0/Download", expand=True)
         progress_bar = ft.ProgressBar(width=300, visible=False)
-        status_txt = ft.Text("Ready. Select file or type path.", color="green")
+        status_txt = ft.Text("Ready. Browse or type path.", color="green")
         
-        # --- PICKER LOGIC ---
-        picker_ref = ft.Ref[ft.FilePicker]()
+        # --- CUSTOM FILE BROWSER LOGIC ---
+        current_browser_path = "/storage/emulated/0/Download"
+        if not os.path.exists(current_browser_path):
+            current_browser_path = "/storage/emulated/0" # Fallback
+            
+        browser_list = ft.ListView(expand=True, spacing=10, padding=10, height=300)
+        browser_path_display = ft.Text(current_browser_path, size=12, color="grey")
         
-        def on_picker_result(e):
-            if e.files:
-                path_input.value = e.files[0].path
-                status_txt.value = "File Selected!"
-                page.update()
-        
-        def enable_picker_click(e):
+        def close_browser(e):
+            browser_dialog.open = False
+            page.update()
+            
+        def select_file(path):
+            path_input.value = path
+            status_txt.value = f"Selected: {os.path.basename(path)}"
+            browser_dialog.open = False
+            page.update()
+            
+        def navigate_to(path):
+            nonlocal current_browser_path
             try:
-                status_txt.value = "Initializing Picker..."
-                status_txt.color = "blue"
-                page.update()
+                items = sorted(os.listdir(path))
+                browser_list.controls.clear()
                 
-                # Dynamic Creation
-                p = ft.FilePicker()
-                p.on_result = on_picker_result
-                picker_ref.current = p
+                # Add ".." for parent
+                parent = os.path.dirname(path)
+                browser_list.controls.append(
+                    ft.ElevatedButton(".. (Up)", on_click=lambda _: navigate_to(parent), bgcolor="grey", color="white")
+                )
                 
-                page.overlay.append(p)
-                page.update() # This is the critical moment
+                for item in items:
+                    full_path = os.path.join(path, item)
+                    if os.path.isdir(full_path):
+                        # Directory
+                         browser_list.controls.append(
+                            ft.OutlinedButton(f"📂 {item}", on_click=lambda _, p=full_path: navigate_to(p))
+                        )
+                    elif item.lower().endswith('.cbz'):
+                        # CBZ File
+                        browser_list.controls.append(
+                            ft.ElevatedButton(f"📄 {item}", on_click=lambda _, p=full_path: select_file(p), bgcolor="blue", color="white")
+                        )
                 
-                # If we get here, it worked
-                status_txt.value = "Picker Enabled!"
-                status_txt.color = "green"
+                current_browser_path = path
+                browser_path_display.value = path
+                browser_dialog.update()
                 
-                # Show Select Button
-                btn_pick_container.content = ft.ElevatedButton("Select CBZ File", on_click=lambda _: p.pick_files(allow_multiple=False, allowed_extensions=["cbz"]))
-                page.update()
-                
-            except Exception as ex:
-                status_txt.value = f"Picker Failed: {ex}"
-                status_txt.color = "red"
-                page.update()
-                
-        # Container to swap "Enable" -> "Select"
-        btn_pick_container = ft.Container(
-            content=ft.ElevatedButton("Enable File Picker", on_click=enable_picker_click)
+            except PermissionError:
+                browser_path_display.value = f"Access Denied: {path}"
+                browser_path_display.color = "red"
+                browser_dialog.update()
+            except Exception as e:
+                browser_path_display.value = f"Error: {e}"
+                browser_dialog.update()
+
+        browser_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Select CBZ File"),
+            content=ft.Column([
+                browser_path_display,
+                ft.Divider(),
+                browser_list
+            ], height=400, width=300),
+            actions=[
+                ft.TextButton("Cancel", on_click=close_browser)
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
         )
+
+        def open_browser(e):
+            page.dialog = browser_dialog
+            browser_dialog.open = True
+            navigate_to(current_browser_path) # Initial load
+            page.update()
+
+        # Input Row
+        input_row = ft.Row([
+            path_input,
+            ft.IconButton(ft.icons.FOLDER_OPEN, on_click=open_browser, tooltip="Browse")
+        ])
 
         def on_progress(p, msg):
             progress_bar.value = p/100
@@ -114,7 +155,7 @@ def main(page):
             
             dst = src.replace(".cbz", ".pdf")
             
-            status_txt.value = f"Converting: {src}"
+            status_txt.value = f"Converting: {os.path.basename(src)}"
             status_txt.color = "black"
             progress_bar.visible = True
             page.update()
@@ -135,9 +176,8 @@ def main(page):
         
         page.add(
             ft.Column([
-                path_input,
                 ft.Container(height=10),
-                btn_pick_container, # Dynamic button
+                input_row,
                 ft.Container(height=10),
                 ft.ElevatedButton("Convert to PDF", on_click=run_convert),
                 ft.Container(height=20),
