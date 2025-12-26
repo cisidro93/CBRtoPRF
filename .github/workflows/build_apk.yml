@@ -39,7 +39,7 @@ jobs:
           flet build apk main_mobile.py --verbose
 
       - name: Upload APK
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: build/apk/app-release.apk # Adjust path based on where flet outputs
