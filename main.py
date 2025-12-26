@@ -92,120 +92,121 @@ def main(page):
 
     # --- MAIN CONVERTER SCREEN ---
     def show_main_ui():
-        page.clean()
-        
-        path_input = ft.TextField(
-            label="File Path", 
-            value=state["selected_file"], 
-            expand=True
-        )
-        
-        # New Feature Controls
-        sw_compress = ft.Switch(
-            label="Compress PDF (Max 50MB)", 
-            value=state["compress_enabled"],
-            on_change=lambda e: state.update({"compress_enabled": e.control.value})
-        )
-        
-        progress_bar = ft.ProgressBar(width=300, visible=False)
-        # Using a Row to hold status text and percent for better layout
-        status_txt = ft.Text("Ready.", color="green")
-        percent_txt = ft.Text("", weight="bold")
-        
-        def on_browse_click(e):
-            show_browser_ui(state["current_path"])
-
-        def on_settings_click(e):
-            show_settings_ui()
-
-        def on_progress(p, msg):
-            progress_bar.value = p/100
-            status_txt.value = msg
-            percent_txt.value = f"{int(p)}%"
-            page.update()
+        try:
+            page.clean()
             
-        def run_convert(e):
-            src = path_input.value
-            if not src:
-                status_txt.value = "Enter a path first."
-                status_txt.color = "red"
+            path_input = ft.TextField(
+                label="File Path", 
+                value=state["selected_file"], 
+                expand=True
+            )
+            
+            # New Feature Controls
+            sw_compress = ft.Switch(
+                label="Compress PDF (Max 50MB)", 
+                value=state["compress_enabled"],
+                on_change=lambda e: state.update({"compress_enabled": e.control.value})
+            )
+            
+            progress_bar = ft.ProgressBar(width=300, visible=False)
+            status_txt = ft.Text("Ready. Browse or type path.", color="green")
+            percent_txt = ft.Text("", weight="bold")
+            
+            def on_browse_click(e):
+                show_browser_ui(state["current_path"])
+
+            def on_settings_click(e):
+                show_settings_ui()
+
+            def on_progress(p, msg):
+                progress_bar.value = p/100
+                status_txt.value = msg
+                percent_txt.value = f"{int(p)}%"
                 page.update()
-                return
-            
-            state["selected_file"] = src # Save manually typed path
-            dst = src.replace(".cbz", ".pdf")
-            
-            status_txt.value = f"Starting..."
-            status_txt.color = "black"
-            percent_txt.value = "0%"
-            progress_bar.visible = True
-            page.update()
-            
-            import threading
-            def worker():
-                try:
-                    # 1. Conversion
-                    success = conversion_engine(
-                        src, 
-                        dst, 
-                        progress_callback=on_progress,
-                        compress=state["compress_enabled"],
-                        max_size_mb=50 # Hardcoded mobile limit
-                    )
-                    
-                    if success is False:
-                         raise Exception("Conversion returned False")
-
-                    status_txt.value = "Conversion Complete!"
-                    status_txt.color = "green"
-                    page.update()
-                    
-                    # 2. Email (if configured)
-                    if state["email_sender"] and state["email_recipient"]:
-                        on_progress(100, "Sending to Kindle...")
-                        try:
-                            import email_sender
-                            sent, msg = email_sender.send_email(
-                                dst, 
-                                state["email_sender"], 
-                                state["email_password"], 
-                                state["email_recipient"]
-                            )
-                            if sent:
-                                status_txt.value = "Done + Sent to Kindle!"
-                            else:
-                                status_txt.value = f"Done, but Email Failed: {msg}"
-                        except ImportError:
-                             status_txt.value = "Done (Email module missing)"
-                        except Exception as e:
-                             status_txt.value = f"Done (Email error: {e})"
-                        page.update()
-
-                except Exception as e:
-                    status_txt.value = f"Error: {e}"
+                
+            def run_convert(e):
+                src = path_input.value
+                if not src:
+                    status_txt.value = "Enter a path first."
                     status_txt.color = "red"
                     page.update()
+                    return
+                
+                state["selected_file"] = src 
+                dst = src.replace(".cbz", ".pdf")
+                
+                status_txt.value = f"Starting..."
+                status_txt.color = "black"
+                percent_txt.value = "0%"
+                progress_bar.visible = True
+                page.update()
+                
+                import threading
+                def worker():
+                    try:
+                        success = conversion_engine(
+                            src, 
+                            dst, 
+                            progress_callback=on_progress,
+                            compress=state["compress_enabled"],
+                            max_size_mb=50
+                        )
+                        
+                        if success is False:
+                             raise Exception("Conversion returned False")
+
+                        status_txt.value = "Conversion Complete!"
+                        status_txt.color = "green"
+                        page.update()
+                        
+                        if state["email_sender"] and state["email_recipient"]:
+                            on_progress(100, "Sending to Kindle...")
+                            try:
+                                import email_sender
+                                sent, msg = email_sender.send_email(
+                                    dst, 
+                                    state["email_sender"], 
+                                    state["email_password"], 
+                                    state["email_recipient"]
+                                )
+                                if sent:
+                                    status_txt.value = "Done + Sent to Kindle!"
+                                else:
+                                    status_txt.value = f"Done, but Email Failed: {msg}"
+                            except Exception as e:
+                                 status_txt.value = f"Done (Email error: {e})"
+                            page.update()
+
+                    except Exception as e:
+                        status_txt.value = f"Error: {e}"
+                        status_txt.color = "red"
+                        page.update()
+                
+                threading.Thread(target=worker).start()
+                
+            # Layout
+            page.add(
+                ft.Row([
+                    ft.Text("CBZ to PDF", size=24, weight="bold"),
+                    ft.TextButton("[Settings]", on_click=on_settings_click) 
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Container(height=10),
+                ft.Row([
+                    path_input,
+                    ft.ElevatedButton("Browse", on_click=on_browse_click)
+                ]),
+                sw_compress,
+                ft.Container(height=10),
+                ft.ElevatedButton("Convert to PDF", on_click=run_convert, width=200),
+                ft.Container(height=20),
+                progress_bar,
+                ft.Row([percent_txt, status_txt], spacing=10)
+            )
+            page.update()
             
-            threading.Thread(target=worker).start()
-            
-        page.add(
-            ft.Row([
-                ft.Text("CBZ to PDF", size=24, weight="bold"),
-                ft.IconButton(ft.icons.SETTINGS, on_click=on_settings_click) 
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Container(height=10),
-            ft.Row([
-                path_input,
-                ft.ElevatedButton("Browse", on_click=on_browse_click)
-            ]),
-            sw_compress,
-            ft.Container(height=10),
-            ft.ElevatedButton("Convert to PDF", on_click=run_convert, width=200),
-            ft.Container(height=20),
-            progress_bar,
-            ft.Row([percent_txt, status_txt], spacing=10)
-        )
-        page.update()
+        except Exception as e:
+            log(f"UI ERROR: {e}", "red")
+            log(traceback.format_exc(), "red")
 
     # --- HELPER: Detect SD Cards ---
     def get_android_drives():
