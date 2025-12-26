@@ -5,35 +5,15 @@ import subprocess
 import math
 from typing import Optional, Callable, Union
 from pathlib import Path
-import img2pdf
+try:
+    import img2pdf
+    HAS_IMG2PDF = True
+except ImportError:
+    HAS_IMG2PDF = False
+
 from PIL import Image
 
-def is_image(filename: str) -> bool:
-    """Checks if a file is an image based on extension."""
-    valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff')
-    return filename.lower().endswith(valid_extensions)
-
-def find_winrar() -> Optional[str]:
-    """Finds the WinRAR executable."""
-    possible_paths = [
-        r"C:\Program Files\WinRAR\WinRAR.exe",
-        r"C:\Program Files (x86)\WinRAR\WinRAR.exe"
-    ]
-    
-    # Check common paths
-    for path in possible_paths:
-        if os.path.exists(path):
-            return path
-            
-    # Check PATH
-    try:
-        result = subprocess.run(["where", "WinRAR"], capture_output=True, text=True)
-        if result.returncode == 0:
-            return result.stdout.strip().split('\n')[0]
-    except Exception:
-        pass
-        
-    return None
+# ... (Previous helper functions remain unchanged, skipping to convert_cbz_to_pdf logic)
 
 def convert_cbz_to_pdf(input_path: Union[str, Path], pdf_path: Union[str, Path], 
                        progress_callback: Optional[Callable[[int, str], None]] = None, 
@@ -136,11 +116,31 @@ def convert_cbz_to_pdf(input_path: Union[str, Path], pdf_path: Union[str, Path],
             report_progress(80, f"Found {len(image_files)} images. Converting to PDF...")
 
             # Convert to PDF
-            pdf_bytes = img2pdf.convert(image_files)
-            
-            report_progress(95, "Saving PDF...")
-            with open(pdf_path, "wb") as f:
-                f.write(pdf_bytes)
+            if HAS_IMG2PDF:
+                pdf_bytes = img2pdf.convert(image_files)
+                report_progress(95, "Saving PDF...")
+                with open(pdf_path, "wb") as f:
+                    f.write(pdf_bytes)
+            else:
+                # Fallback to Pillow
+                report_progress(95, "Saving PDF (Pillow Engine)...")
+                # Open all images
+                images = []
+                first_image = None
+                for img_path in image_files:
+                    try:
+                        img = Image.open(img_path).convert("RGB")
+                        if first_image is None:
+                            first_image = img
+                        else:
+                            images.append(img)
+                    except Exception as e:
+                         print(f"Warning: Could not open {img_path}: {e}")
+                
+                if first_image:
+                    first_image.save(pdf_path, "PDF", resolution=100.0, save_all=True, append_images=images)
+                else:
+                    raise ValueError("No valid images processing for PDF.")
             
             report_progress(100, f"Successfully created: {os.path.basename(pdf_path)}")
             return True
