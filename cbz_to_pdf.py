@@ -5,14 +5,13 @@ import math
 from typing import Optional, Callable, Union
 from pathlib import Path
 
-# Safe imports for Android
-try:
-    import img2pdf
-    HAS_IMG2PDF = True
-except ImportError:
-    HAS_IMG2PDF = False
-
-from PIL import Image
+# Safe imports for Android (Lazy loaded)
+# try:
+#     import img2pdf
+#     HAS_IMG2PDF = True
+# except ImportError:
+#     HAS_IMG2PDF = False
+# from PIL import Image
 
 def is_image(filename: str) -> bool:
     """Checks if a file represents an image based on extension."""
@@ -22,6 +21,20 @@ def convert_cbz_to_pdf(input_path: Union[str, Path], pdf_path: Union[str, Path],
                        progress_callback: Optional[Callable[[int, str], None]] = None, 
                        compress: bool = False, quality: int = 75, max_size_mb: Optional[int] = None) -> bool:
     """Converts a CBZ file to a PDF file."""
+    
+    # Lazy Imports to prevent startup freeze
+    try:
+        import img2pdf
+        HAS_IMG2PDF = True
+    except ImportError:
+        HAS_IMG2PDF = False
+        
+    try:
+        from PIL import Image
+    except ImportError:
+        if progress_callback:
+            progress_callback(0, "Error: Pillow library not found.")
+        return False
     
     input_path = str(input_path)
     pdf_path = str(pdf_path)

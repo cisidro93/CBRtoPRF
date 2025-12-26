@@ -1,163 +1,146 @@
 import flet as ft
-import os
-import threading
 import time
-import traceback
+import threading
 import sys
+import traceback
 
-# Global reference to the converter logic, loaded lazily
-converter_func = None
+# Global var for the engine
+conversion_engine = None
 
 def main(page):
-    page.title = "CBZ to PDF"
+    page.title = "Bootloader"
     page.scroll = "auto"
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.window.width = 400
-    page.padding = 20
+    page.padding = 30
+    
+    # Text buffer
+    log_column = ft.Column(scroll="auto")
+    title = ft.Text("System Boot", size=24, weight="bold", color="blue")
+    
+    page.add(title, ft.Divider(), log_column)
+    page.update()
 
-    # SECTION: BOOT LOADER UI
-    boot_log = ft.Column()
-    boot_status = ft.Text("Initializing...", size=16, weight="bold")
-    page.add(ft.Container(height=20), boot_status, ft.Divider(), boot_log)
-
-    def log(msg, color="grey"):
+    def log(msg, color="black"):
+        # Append text safely
         print(msg)
-        boot_log.controls.append(ft.Text(msg, size=12, color=color))
+        log_column.controls.append(ft.Text(msg, color=color, size=14, selectable=True))
         page.update()
 
-    def load_backend():
-        global converter_func
+    log(f"Python: {sys.version}")
+    log("UI Rendered. Starting loader thread...")
+
+    def loader_task():
+        global conversion_engine
         try:
-            log("Loading conversion engine...")
-            time.sleep(0.5) # Give UI time to breathe
+            log("Thread: Started. Waiting 1s...")
+            time.sleep(1.0)
             
-            # Intentional lazy import
-            from cbz_to_pdf import convert_cbz_to_pdf
-            converter_func = convert_cbz_to_pdf
+            log("Thread: Attempting import of cbz_to_pdf...")
+            try:
+                # 1. Import module
+                import cbz_to_pdf
+                log("Thread: Module imported. Checking function...")
+                
+                # 2. Check function
+                if hasattr(cbz_to_pdf, 'convert_cbz_to_pdf'):
+                    conversion_engine = cbz_to_pdf.convert_cbz_to_pdf
+                    log("Thread: Engine validated.", "green")
+                else:
+                    log("Thread: ERROR - Function convert_cbz_to_pdf not found!", "red")
+                    return
+                    
+            except Exception as e:
+                 log(f"Thread: IMPORT FAIL: {e}", "red")
+                 log(traceback.format_exc(), "red")
+                 return
             
-            log("Engine loaded successfully.", "green")
-            time.sleep(0.5)
+            log("Thread: Ready to launch App. Switching UI in 1s...")
+            time.sleep(1.0)
             
-            # Switch to Main UI
-            page.clean()
-            init_main_ui()
+            # RUN UI SWAP ON MAIN THREAD
+            # Flet is usually thread-safe for page.clean() but let's be careful.
+            # We'll just append the real UI below the log for now to avoid clearing 'useful' crash info.
+            
+            # Actually, let's clear to test if that works.
+            # page.clean() 
+            # If page.clean() crashes, we'll know.
+            
+            launch_app_ui()
             
         except Exception as e:
-            log(f"CRITICAL ERROR: {e}", "red")
-            boot_log.controls.append(ft.Text(traceback.format_exc(), color="red", size=10))
-            page.update()
-
-    # SECTION: MAIN UI
-    def init_main_ui():
-        selected_file_path = ft.Ref[str]()
-        
-        status_text = ft.Text("Ready", size=16, weight="bold")
-        progress_bar = ft.ProgressBar(width=300, value=0, visible=False)
-        selected_file_text = ft.Text("No file selected", italic=True)
-
-        def update_progress(percentage, message):
-            progress_bar.value = percentage / 100
-            status_text.value = message
-            page.update()
-
-        def run_conversion_thread(src, dst, compress):
-            try:
-                if not converter_func:
-                    raise Exception("Converter engine not loaded.")
-
-                success = converter_func(
-                    src, dst, 
-                    progress_callback=update_progress,
-                    compress=compress
-                )
+            log(f"Thread: CRASH: {e}", "red")
+            log(traceback.format_exc(), "red")
+    
+    def launch_app_ui():
+        try:
+            log("Launching Main UI...")
+            page.clean()
+            
+            # --- APP UI ---
+            page.title = "CBZ Converter"
+            
+            selected_file = ft.Ref[str]()
+            status_txt = ft.Text("Engine Ready.", color="green", size=16)
+            progress_bar = ft.ProgressBar(width=300, visible=False)
+            
+            def on_progress(p, msg):
+                progress_bar.value = p/100
+                status_txt.value = msg
+                page.update()
                 
-                def finish_ui():
-                    progress_bar.visible = False
-                    status_text.value = "Done: " + os.path.basename(dst)
-                    status_text.color = "green"
-                    btn_convert.disabled = False
-                    btn_pick.disabled = False
+            def run_convert():
+                if not selected_file.current:
+                    status_txt.value = "Select file first!"
                     page.update()
-                finish_ui()
-
-            except Exception as e:
-                def fail_ui():
-                    progress_bar.visible = False
-                    status_text.value = f"Error: {e}"
-                    status_text.color = "red"
-                    btn_convert.disabled = False
-                    btn_pick.disabled = False
-                    page.update()
-                fail_ui()
-
-        def on_convert_click(e):
-            if not selected_file_path.current:
-                status_text.value = "Please select a file first"
-                status_text.color = "red"
+                    return
+                
+                src = selected_file.current
+                dst = src.replace(".cbz", ".pdf")
+                
+                status_txt.value = "Starting..."
+                progress_bar.visible = True
                 page.update()
-                return
+                
+                def worker():
+                    try:
+                        conversion_engine(src, dst, progress_callback=on_progress)
+                        status_txt.value = "Done!"
+                        page.update()
+                    except Exception as e:
+                        status_txt.value = f"Error: {e}"
+                        page.update()
+                
+                threading.Thread(target=worker).start()
 
-            src = selected_file_path.current
-            dst = os.path.splitext(src)[0] + ".pdf"
+            def on_pick(e: ft.FilePickerResultEvent):
+                if e.files:
+                    path = e.files[0].path
+                    selected_file.current = path
+                    status_txt.value = f"Selected: {path}"
+                    page.update()
 
-            btn_convert.disabled = True
-            btn_pick.disabled = True
-            progress_bar.visible = True
-            status_text.value = "Starting..."
-            status_text.color = "black"
+            picker = ft.FilePicker(on_result=on_pick)
+            page.overlay.append(picker)
+            
+            page.add(
+                ft.Column([
+                    ft.Text("CBZ -> PDF", size=30),
+                    ft.ElevatedButton("Select File", on_click=lambda _: picker.pick_files(allow_multiple=False, allowed_extensions=["cbz"])),
+                    ft.ElevatedButton("Convert", on_click=lambda _: run_convert()),
+                    progress_bar,
+                    status_txt
+                ])
+            )
+            page.update()
+            # --- END APP UI ---
+            
+        except Exception as e:
+            # If UI launch fails, we probably cleaned the page, so add text back
+            page.add(ft.Text(f"UI Launch Failed: {e}", color="red"))
             page.update()
 
-            t = threading.Thread(target=run_conversion_thread, args=(src, dst, chk_compress.value))
-            t.start()
-
-        def on_file_picked(e: ft.FilePickerResultEvent):
-            if e.files and len(e.files) > 0:
-                file_path = e.files[0].path
-                selected_file_path.current = file_path
-                selected_file_text.value = os.path.basename(file_path)
-                selected_file_text.color = "black"
-                status_text.value = "Ready to convert"
-                page.update()
-
-        file_picker = ft.FilePicker(on_result=on_file_picked)
-        page.overlay.append(file_picker)
-
-        btn_pick = ft.ElevatedButton(
-            "Select CBZ", 
-            icon=ft.icons.FOLDER_OPEN,
-            on_click=lambda _: file_picker.pick_files(allow_multiple=False, allowed_extensions=["cbz"])
-        )
-
-        chk_compress = ft.Checkbox(label="Compress Images", value=False)
-
-        btn_convert = ft.ElevatedButton(
-            "Convert to PDF",
-            icon=ft.icons.PICTURE_AS_PDF,
-            on_click=on_convert_click
-        )
-
-        page.add(
-            ft.Column(
-                [
-                    ft.Text("CBZ to PDF", size=24, weight="bold"),
-                    ft.Divider(),
-                    btn_pick,
-                    selected_file_text,
-                    ft.Container(height=10),
-                    chk_compress,
-                    ft.Container(height=10),
-                    btn_convert,
-                    ft.Divider(),
-                    status_text,
-                    progress_bar,
-                ],
-                alignment=ft.MainAxisAlignment.START
-            )
-        )
-        page.update()
-
-    # Start separate thread for loading to avoid blocking UI frame 1
-    t = threading.Timer(0.1, load_backend)
+    # Start thread
+    t = threading.Thread(target=loader_task, daemon=True)
     t.start()
 
 if __name__ == "__main__":
