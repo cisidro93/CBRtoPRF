@@ -112,7 +112,7 @@ def main(page):
                 
                 threading.Thread(target=worker).start()
 
-            def on_pick(e: ft.FilePickerResultEvent):
+            def on_pick(e):
                 if e.files:
                     path = e.files[0].path
                     selected_file.current = path
