@@ -91,9 +91,27 @@ def main(page):
         page.update()
 
     # --- MAIN CONVERTER SCREEN ---
+    # --- MAIN CONVERTER SCREEN ---
     def show_main_ui():
         try:
             page.clean()
+            
+            # --- Native Picker Setup (iOS/Desktop) ---
+            def on_dialog_result(e: ft.FilePickerResultEvent):
+                if e.files:
+                    selected_path = e.files[0].path
+                    path_input.value = selected_path
+                    state["selected_file"] = selected_path
+                    state["current_path"] = os.path.dirname(selected_path)
+                    
+                    # Update Start Button
+                    status_txt.value = f"Selected: {os.path.basename(selected_path)}"
+                    status_txt.color = "blue"
+                    page.update()
+
+            file_picker = ft.FilePicker(on_result=on_dialog_result)
+            page.overlay.append(file_picker)
+            page.update()
             
             path_input = ft.TextField(
                 label="File Path", 
@@ -117,6 +135,9 @@ def main(page):
 
             def on_settings_click(e):
                 show_settings_ui()
+                
+            def on_native_pick_click(e):
+                file_picker.pick_files(allow_multiple=False, allowed_extensions=["cbz"])
 
             def on_progress(p, msg):
                 progress_bar.value = p/100
@@ -191,9 +212,11 @@ def main(page):
                     ft.TextButton("[Settings]", on_click=on_settings_click) 
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Container(height=10),
+                path_input,
+                ft.Container(height=5),
                 ft.Row([
-                    path_input,
-                    ft.ElevatedButton("Browse", on_click=on_browse_click)
+                    ft.ElevatedButton("Browse (Android)", on_click=on_browse_click, expand=True, bgcolor="orange", color="white"),
+                    ft.ElevatedButton("System Picker (iOS)", on_click=on_native_pick_click, expand=True, bgcolor="blue", color="white")
                 ]),
                 sw_compress,
                 ft.Container(height=10),
