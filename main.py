@@ -8,10 +8,13 @@ import time
 conversion_engine = None
 
 def main(page):
-    page.title = "CBZ Converter (Safe Mode)"
-    page.scroll = "auto" # Back to simple scrolling
+    page.title = "CBZ Converter (No Picker)"
+    page.scroll = "auto" 
     page.theme_mode = ft.ThemeMode.LIGHT
     page.padding = 20
+    
+    # 1. Boot Message
+    page.add(ft.Text("System Boot: Build #48 (No FilePicker)", color="blue", size=16, weight="bold"))
     
     # Global State
     state = {
@@ -22,14 +25,9 @@ def main(page):
         "email_password": "",
         "email_recipient": ""
     }
-    
-    # 1. Boot Message
-    boot_text = ft.Text("System Boot: Safe Layout Mode", color="blue", size=16, weight="bold")
-    page.add(boot_text)
-    
+
     def log(msg, color="black"):
         print(msg)
-        # Direct add to page - safest method
         page.add(ft.Text(msg, color=color, size=12))
         try:
             page.update()
@@ -38,26 +36,11 @@ def main(page):
 
     log(f"Python: {sys.version}")
     
-    # Native Picker (Global Init)
-    file_picker = None
-    try:
-        log("Init: FilePicker...")
-        def on_dialog_result(e):
-            if e.files:
-                selected_path = e.files[0].path
-                state["selected_file"] = selected_path
-                state["current_path"] = os.path.dirname(selected_path)
-                log(f"Selected: {selected_path}", "blue")
-                show_main_ui()
-
-        file_picker = ft.FilePicker()
-        file_picker.on_result = on_dialog_result
-        page.overlay.append(file_picker)
-        page.update()
-        log("Init: FilePicker Success", "green")
-    except Exception as e:
-        log(f"CRITICAL: FilePicker Init Failed: {e}", "red")
-        log(traceback.format_exc(), "red")
+    # --- EXORCISM: NO FILE PICKER ---
+    # We suspect FilePicker in page.overlay is causing the Red Screen.
+    # We are disabling it completely to verify.
+    log("Debug: FilePicker is DISABLED to test UI stability.")
+    file_picker = None 
     
     def load_engine_click(e):
         global conversion_engine
@@ -143,11 +126,8 @@ def main(page):
                 show_settings_ui()
                 
             def on_native_pick_click(e):
-                log("Opening Native Picker...")
-                try:
-                    file_picker.pick_files(allow_multiple=False, allowed_extensions=["cbz"])
-                except Exception as ex:
-                    log(f"Picker Error: {ex}", "red")
+                log("NATIVE PICKER IS DISABLED IN THIS BUILD", "red")
+                log("If you see this, the Red Screen is GONE, which means FilePicker was the bug.", "blue")
 
             def on_progress(p, msg):
                 progress_bar.value = p/100
@@ -226,8 +206,8 @@ def main(page):
                 path_input,
                 ft.Container(height=5),
                 ft.Row([
-                    ft.ElevatedButton("Browse (Android)", on_click=on_browse_click, expand=True, bgcolor="orange", color="white"),
-                    ft.ElevatedButton("System Picker (iOS)", on_click=on_native_pick_click, expand=True, bgcolor="blue", color="white")
+                    ft.ElevatedButton("Browse (Internal)", on_click=on_browse_click, expand=True, bgcolor="orange", color="white"),
+                    ft.ElevatedButton("System Picker (Disabled)", on_click=on_native_pick_click, expand=True, bgcolor="grey", color="white")
                 ]),
                 sw_compress,
                 ft.Container(height=10),
@@ -236,9 +216,8 @@ def main(page):
                 progress_bar,
                 ft.Row([percent_txt, status_txt], spacing=10),
                 ft.Divider(),
-                ft.Text("Logs (Safe Mode)", weight="bold")
+                ft.Text("Logs (No Overlay)", weight="bold")
             )
-            # Logs will just append below this
             
             page.update()
             log("UI Build Complete!", "green")
