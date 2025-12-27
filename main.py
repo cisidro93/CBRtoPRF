@@ -14,7 +14,7 @@ def main(page):
     page.padding = 20
     
     # 1. Boot Message
-    page.add(ft.Text("System Boot: Build #58 (Inbox & Safe Nav)", color="blue", size=16, weight="bold"))
+    page.add(ft.Text("System Boot: Build #59 (Drag & Drop)", color="blue", size=16, weight="bold"))
     
     # Global State
     # FIXED: Use expanduser("~") for iOS compatibility (sandbox root)
@@ -88,6 +88,29 @@ def main(page):
         except Exception as e:
             log(f"IMPORT ERROR: {e}", "red")
             btn_load.disabled = False
+
+    # --- FILE DROP HANDLER (Drag & Drop + Open In) ---
+    def on_file_drop(e: ft.FileDropEvent):
+        try:
+            if not e.files:
+                return
+            
+            # Get the first file
+            f = e.files[0]
+            log(f"File Received: {f.name} ({f.path})", "green")
+            
+            # On iOS, the path might be inside Inbox.
+            if f.path:
+                state["selected_file"] = f.path
+                state["current_path"] = os.path.dirname(f.path)
+            
+                # Update UI if we are in Main UI, or switch to it
+                show_main_ui()
+                
+        except Exception as ex:
+             log(f"Drop Handler Error: {ex}", "red")
+
+    page.on_file_drop = on_file_drop
 
     # --- SETTINGS SCREEN ---
     def show_settings_ui():

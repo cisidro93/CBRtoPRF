@@ -46,14 +46,17 @@ jobs:
             echo "Found app at: $APP_PATH"
             
             # --- MANUAL OVERRIDE: Force Inject Info.plist keys ---
-            # Flet config seems to be ignored, so we do it the hard way.
+            # Merge our handcrafted config to ensure Flet didn't miss anything.
             PLIST="$APP_PATH/Info.plist"
+            CONFIG="ios_config.plist"
             
-            echo "Injecting UIFileSharingEnabled..."
-            /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" "$PLIST" || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled bool true" "$PLIST"
-            
-            echo "Injecting LSSupportsOpeningDocumentsInPlace..."
-            /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" "$PLIST" || /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace bool true" "$PLIST"
+            echo "Merging ios_config.plist into App Info.plist..."
+            if [ -f "$CONFIG" ]; then
+                /usr/libexec/PlistBuddy -c "Merge $CONFIG :" "$PLIST"
+            else
+                echo "ERROR: ios_config.plist not found!"
+                exit 1
+            fi
             
             # DEBUG: Print final plist
             echo "--- FINAL INFO.PLIST START ---"
