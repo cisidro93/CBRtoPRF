@@ -14,12 +14,18 @@ def main(page):
     page.padding = 20
     
     # 1. Boot Message
-    page.add(ft.Text("System Boot: Build #48 (No FilePicker)", color="blue", size=16, weight="bold"))
+    page.add(ft.Text("System Boot: Build #49 (iOS Path Fix)", color="blue", size=16, weight="bold"))
     
     # Global State
+    # FIXED: Use expanduser("~") for iOS compatibility (sandbox root)
+    default_path = os.path.expanduser("~")
+    # Fallback for Android if needed (though ~ usually works)
+    if os.path.exists("/storage/emulated/0/Download"):
+        default_path = "/storage/emulated/0/Download"
+    
     state = {
-        "current_path": "/storage/emulated/0/Download",
-        "selected_file": "/storage/emulated/0/Download",
+        "current_path": default_path,
+        "selected_file": "Select a file...",
         "compress_enabled": False,
         "email_sender": "",
         "email_password": "",
@@ -35,11 +41,11 @@ def main(page):
             pass 
 
     log(f"Python: {sys.version}")
+    log(f"Home Dir: {os.path.expanduser('~')}")
+    log(f"CWD: {os.getcwd()}")
     
     # --- EXORCISM: NO FILE PICKER ---
-    # We suspect FilePicker in page.overlay is causing the Red Screen.
-    # We are disabling it completely to verify.
-    log("Debug: FilePicker is DISABLED to test UI stability.")
+    log("Debug: FilePicker is DISABLED.")
     file_picker = None 
     
     def load_engine_click(e):
@@ -127,7 +133,6 @@ def main(page):
                 
             def on_native_pick_click(e):
                 log("NATIVE PICKER IS DISABLED IN THIS BUILD", "red")
-                log("If you see this, the Red Screen is GONE, which means FilePicker was the bug.", "blue")
 
             def on_progress(p, msg):
                 progress_bar.value = p/100
@@ -206,8 +211,8 @@ def main(page):
                 path_input,
                 ft.Container(height=5),
                 ft.Row([
-                    ft.ElevatedButton("Browse (Internal)", on_click=on_browse_click, expand=True, bgcolor="orange", color="white"),
-                    ft.ElevatedButton("System Picker (Disabled)", on_click=on_native_pick_click, expand=True, bgcolor="grey", color="white")
+                    ft.ElevatedButton("Browse Files", on_click=on_browse_click, expand=True, bgcolor="orange", color="white"),
+                    # ft.ElevatedButton("System Picker (Disabled)", on_click=on_native_pick_click, expand=True, bgcolor="grey", color="white")
                 ]),
                 sw_compress,
                 ft.Container(height=10),
@@ -226,35 +231,49 @@ def main(page):
             log(f"UI ERROR: {e}", "red")
             log(traceback.format_exc(), "red")
 
-    # --- HELPER: Detect SD Cards ---
-    def get_android_drives():
+    # --- HELPER: Detect SD Cards (or iOS Home) ---
+    def get_valid_drives():
         drives = set()
-        drives.add("/storage/emulated/0") # Internal Default
         
-        try:
-            with open("/proc/mounts", "r") as f:
-                for line in f:
-                    parts = line.split()
-                    if len(parts) > 1:
-                        mount_point = parts[1]
-                        # Look for storage mounts
-                        if mount_point.startswith("/storage") and mount_point != "/storage":
-                            # Avoid duplicates like /storage/self/primary
-                            if "self" not in mount_point and "emulated" not in mount_point:
-                                drives.add(mount_point)
-        except Exception as e:
-            print(f"Error reading mounts: {e}")
+        # 1. Add Home Directory (Universal)
+        home = os.path.expanduser("~")
+        drives.add(home)
+        
+        # 2. Add CWD (Universal)
+        drives.add(os.getcwd())
+        
+        # 3. Android Specifics
+        if os.path.exists("/proc/mounts"):
+            try:
+                with open("/proc/mounts", "r") as f:
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) > 1:
+                            mount_point = parts[1]
+                            if mount_point.startswith("/storage") and mount_point != "/storage":
+                                if "self" not in mount_point and "emulated" not in mount_point:
+                                    drives.add(mount_point)
+                # Ensure primary android storage is there
+                if os.path.exists("/storage/emulated/0"):
+                    drives.add("/storage/emulated/0")
+            except:
+                pass
             
         return sorted(list(drives))
-
+    
     # --- FULL PAGE FILE BROWSER ---
     def show_browser_ui(start_path):
         page.clean()
         
+        # Validate path
+        if not os.path.exists(start_path):
+            log(f"Path not found: {start_path}, resetting to Home.", "red")
+            start_path = os.path.expanduser("~")
+            
         # State Update
         state["current_path"] = start_path
         
-        file_list = ft.Column(scroll="auto", expand=True)
+        file_list = ft.Column() # No expand, just simple column
         path_display = ft.Text(start_path, color="grey", size=12)
         
         def navigate(path):
@@ -270,14 +289,21 @@ def main(page):
 
         # Build List
         try:
-            # SPECIAL CASE: ROOT STORAGE SELECTION
-            if start_path == "/storage":
-                file_list.controls.append(ft.Text("Detected Storage Volumes:", weight="bold"))
+            # SPECIAL CASE: ROOT SELECTION
+            if start_path == "ROOT_SELECTION":
+                file_list.controls.append(ft.Text("Select Storage Root:", weight="bold"))
                 
-                drives = get_android_drives()
+                drives = get_valid_drives()
                 for drive in drives:
                      file_list.controls.append(
                         ft.ElevatedButton(f"💾 {drive}", on_click=lambda _, p=drive: navigate(p), width=300, bgcolor="orange", color="white")
+                    )
+                     
+                # Add Documents specifically for iOS if easily guessable?
+                docs = os.path.join(os.path.expanduser("~"), "Documents")
+                if os.path.exists(docs):
+                     file_list.controls.append(
+                        ft.ElevatedButton(f"📂 Documents", on_click=lambda _, p=docs: navigate(p), width=300, bgcolor="blue", color="white")
                     )
             else:
                 # Normal Directory Listing
@@ -287,7 +313,7 @@ def main(page):
                 file_list.controls.append(
                     ft.Row([
                         ft.ElevatedButton(".. (UP)", on_click=lambda _: navigate(parent), expand=True, bgcolor="grey", color="white"),
-                        ft.ElevatedButton("Switch Drive", on_click=lambda _: navigate("/storage"), expand=True, bgcolor="orange", color="white"),
+                        ft.ElevatedButton("Switch Drive", on_click=lambda _: navigate("ROOT_SELECTION"), expand=True, bgcolor="orange", color="white"),
                     ])
                 )
                 
@@ -301,22 +327,18 @@ def main(page):
                             ft.OutlinedButton(f"📂 {item}", on_click=lambda _, p=full_path: navigate(p), width=300)
                         )
                     else:
-                        # IT IS A FILE - Show all of them
                         if item.lower().endswith('.cbz'):
-                            # Valid CBZ
                             file_list.controls.append(
                                 ft.ElevatedButton(f"📄 {item}", on_click=lambda _, p=full_path: select(p), width=300, bgcolor="blue", color="white")
                             )
                         else:
-                            # Other File (Debug visibility)
                             file_list.controls.append(
                                 ft.ElevatedButton(f"⬜ {item}", on_click=lambda _, p=full_path: select(p), width=300, bgcolor="grey", color="white")
                             )
                         
         except Exception as e:
             file_list.controls.append(ft.Text(f"Access Error: {e}", color="red"))
-            # Fallback to drive list if we hit a wall
-            file_list.controls.append(ft.ElevatedButton("Go to Detected Drives", on_click=lambda _: navigate("/storage"), bgcolor="orange", color="white"))
+            file_list.controls.append(ft.ElevatedButton("Go Home", on_click=lambda _: navigate(os.path.expanduser("~")), bgcolor="orange", color="white"))
 
         page.add(
             ft.Text("Select File", size=24, weight="bold"),
