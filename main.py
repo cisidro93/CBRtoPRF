@@ -8,10 +8,10 @@ import time
 conversion_engine = None
 
 def main(page):
-    page.title = "CBZ Converter (iOS Safe)"
-    # page.scroll = "auto"  <-- REMOVED to prevent Red Screen
+    page.title = "CBZ Converter (Safe Mode)"
+    page.scroll = "auto" # Back to simple scrolling
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.padding = 10
+    page.padding = 20
     
     # Global State
     state = {
@@ -23,23 +23,14 @@ def main(page):
         "email_recipient": ""
     }
     
-    # --- GLOBAL UI COMPONENTS ---
-    # ListView is safe for potentially infinite logs inside a fixed container
-    log_list = ft.ListView(expand=True, spacing=2, auto_scroll=True)
-    
     # 1. Boot Message
-    boot_text = ft.Text("System Boot: Initializing...", color="blue", size=16, weight="bold")
-    
-    # Main Container
-    main_layout = ft.Column(expand=True, controls=[
-        boot_text,
-        ft.Container(content=log_list, expand=True, border=ft.border.all(1, "#eeeeee"), padding=5)
-    ])
-    page.add(main_layout)
+    boot_text = ft.Text("System Boot: Safe Layout Mode", color="blue", size=16, weight="bold")
+    page.add(boot_text)
     
     def log(msg, color="black"):
         print(msg)
-        log_list.controls.append(ft.Text(msg, color=color, size=12))
+        # Direct add to page - safest method
+        page.add(ft.Text(msg, color=color, size=12))
         try:
             page.update()
         except:
@@ -59,7 +50,6 @@ def main(page):
                 log(f"Selected: {selected_path}", "blue")
                 show_main_ui()
 
-        # Fix for kwargs error: set property after init
         file_picker = ft.FilePicker()
         file_picker.on_result = on_dialog_result
         page.overlay.append(file_picker)
@@ -68,8 +58,6 @@ def main(page):
     except Exception as e:
         log(f"CRITICAL: FilePicker Init Failed: {e}", "red")
         log(traceback.format_exc(), "red")
-
-    log("Mode: Full Page Browser (No Dialogs)")
     
     def load_engine_click(e):
         global conversion_engine
@@ -96,8 +84,7 @@ def main(page):
 
     # --- SETTINGS SCREEN ---
     def show_settings_ui():
-        # Clear main layout controls but keep structure if possible
-        main_layout.controls.clear()
+        page.clean()
         
         txt_sender = ft.TextField(label="Your Gmail", value=state["email_sender"])
         txt_pass = ft.TextField(label="App Password", value=state["email_password"], password=True, can_reveal_password=True)
@@ -112,7 +99,7 @@ def main(page):
         def cancel_settings(e):
             show_main_ui()
             
-        main_layout.controls.extend([
+        page.add(
             ft.Text("Settings", size=24, weight="bold"),
             ft.Text("Kindle / Email Configuration", size=16, weight="bold"),
             txt_sender,
@@ -122,30 +109,20 @@ def main(page):
             ft.Row([
                 ft.ElevatedButton("Save", on_click=save_settings, bgcolor="blue", color="white"),
                 ft.TextButton("Cancel", on_click=cancel_settings)
-            ]),
-            ft.Divider(),
-            ft.Text("Logs:", weight="bold"),
-            ft.Container(content=log_list, height=100, border=ft.border.all(1, "grey"))
-        ])
+            ])
+        )
         page.update()
 
     # --- MAIN CONVERTER SCREEN ---
     def show_main_ui():
         try:
             log("Entering UI Build...")
-            # SAFE LAYOUT: 
-            # 1. Scrollable Content Area (Top)
-            # 2. Fixed Divider
-            # 3. Fixed Log Area (Bottom)
-            
-            main_layout.controls.clear()
-            
-            content_col = ft.Column(scroll="auto", expand=True)
+            page.clean()
             
             log("Building Controls...")
             path_input = ft.TextField(
                 label="File Path", 
-                value=state["selected_file"], 
+                value=state["selected_file"]
             )
             
             # New Feature Controls
@@ -167,7 +144,10 @@ def main(page):
                 
             def on_native_pick_click(e):
                 log("Opening Native Picker...")
-                file_picker.pick_files(allow_multiple=False, allowed_extensions=["cbz"])
+                try:
+                    file_picker.pick_files(allow_multiple=False, allowed_extensions=["cbz"])
+                except Exception as ex:
+                    log(f"Picker Error: {ex}", "red")
 
             def on_progress(p, msg):
                 progress_bar.value = p/100
@@ -237,7 +217,7 @@ def main(page):
                 
             log("Adding Controls to Page...")
             
-            content_col.controls.extend([
+            page.add(
                 ft.Row([
                     ft.Text("CBZ to PDF", size=24, weight="bold"),
                     ft.TextButton("[Settings]", on_click=on_settings_click) 
@@ -254,13 +234,11 @@ def main(page):
                 ft.ElevatedButton("Convert to PDF", on_click=run_convert, width=200),
                 ft.Container(height=20),
                 progress_bar,
-                ft.Row([percent_txt, status_txt], spacing=10)
-            ])
-            
-            # Add to Main Layout: Content (Top, Expand), Divider, Logs (Bottom, Fixed)
-            main_layout.controls.append(content_col)
-            main_layout.controls.append(ft.Divider())
-            main_layout.controls.append(ft.Container(content=log_list, height=120, border=ft.border.all(1, "#eeeeee")))
+                ft.Row([percent_txt, status_txt], spacing=10),
+                ft.Divider(),
+                ft.Text("Logs (Safe Mode)", weight="bold")
+            )
+            # Logs will just append below this
             
             page.update()
             log("UI Build Complete!", "green")
