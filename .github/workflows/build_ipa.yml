@@ -45,34 +45,10 @@ jobs:
           if [ -n "$APP_PATH" ]; then
             echo "Found app at: $APP_PATH"
             
-            # --- MANUAL OVERRIDE: Force Inject Info.plist keys ---
-            # Reverting to Build #58 method: Direct Injection. No Merging.
-            echo "Injecting CFBundleDocumentTypes (Manual)..."
-            # Clear existing if any
-            /usr/libexec/PlistBuddy -c "Delete :CFBundleDocumentTypes" "$PLIST" || true
-            
-            # Create Array
-            /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes array" "$PLIST"
-            
-            # Item 0 Dict
-            /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:0 dict" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:0:CFBundleTypeName string 'Comic Book Archive'" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:0:CFBundleTypeRole string 'Editor'" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:0:LSHandlerRank string 'Owner'" "$PLIST"
-            
-            # Inner Array of Content Types
-            /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes array" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:0 string 'com.pkware.zip-archive'" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:1 string 'public.zip-archive'" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:2 string 'public.archive'" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:3 string 'com.macitbetter.cbz-archive'" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:4 string 'public.data'" "$PLIST"
-            
-            echo "Injecting UIFileSharingEnabled..."
-            /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" "$PLIST" || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled bool true" "$PLIST"
-            
-            echo "Injecting LSSupportsOpeningDocumentsInPlace..."
-            /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" "$PLIST" || /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace bool true" "$PLIST"
+            # --- MANUAL OVERRIDE: Force Inject Info.plist keys via Python ---
+            PLIST="$APP_PATH/Info.plist"
+            echo "Running inject_plist.py on $PLIST..."
+            python inject_plist.py "$PLIST"
             
             # Note: Priority is Folder Visibility. These keys MUST result in 'true'.
             
