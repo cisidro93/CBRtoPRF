@@ -14,11 +14,13 @@ def main(page):
     page.padding = 20
     
     # 1. Boot Message
-    page.add(ft.Text("System Boot: Build #60 (DropZone + Refresh)", color="blue", size=16, weight="bold"))
+    page.add(ft.Text("System Boot: Build #61 (Default: Documents)", color="blue", size=16, weight="bold"))
     
     # Global State
     # FIXED: Use expanduser("~") for iOS compatibility (sandbox root)
-    default_path = os.path.expanduser("~")
+    # Update: Default to Documents since that is what Files app shows
+    default_path = os.path.join(os.path.expanduser("~"), "Documents")
+    
     # Fallback for Android if needed (though ~ usually works)
     if os.path.exists("/storage/emulated/0/Download"):
         default_path = "/storage/emulated/0/Download"
