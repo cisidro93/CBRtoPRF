@@ -14,7 +14,7 @@ def main(page):
     page.padding = 20
     
     # 1. Boot Message
-    page.add(ft.Text("System Boot: Build #63 (Syntax Fix)", color="blue", size=16, weight="bold"))
+    page.add(ft.Text("System Boot: Build #65 (Revert to Known Good)", color="blue", size=16, weight="bold"))
     
     # ... (rest of code)
 

@@ -46,22 +46,18 @@ jobs:
             echo "Found app at: $APP_PATH"
             
             # --- MANUAL OVERRIDE: Force Inject Info.plist keys ---
-            # Merge our handcrafted config to ensure Flet didn't miss anything.
+            # Reverting to Build #58 method: Direct Injection. No Merging.
             PLIST="$APP_PATH/Info.plist"
-            CONFIG="ios_config.plist"
             
-            echo "Merging ios_config.plist into App Info.plist..."
-            if [ -f "$CONFIG" ]; then
-                /usr/libexec/PlistBuddy -c "Merge $CONFIG :" "$PLIST"
-            else
-                echo "ERROR: ios_config.plist not found!"
-                exit 1
-            fi
+            echo "Injecting UIFileSharingEnabled..."
+            /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" "$PLIST" || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled bool true" "$PLIST"
             
-            # FAILSAFE: Explicitly set capabilities again in case Merge failed or was shallow
-            echo "Force-Reinforcing File Sharing Keys..."
-            /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" "$PLIST" || /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace true" "$PLIST" || /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" "$PLIST"
+            echo "Injecting LSSupportsOpeningDocumentsInPlace..."
+            /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" "$PLIST" || /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace bool true" "$PLIST"
+            
+            # Note: Document Types should be handled by Flet from pyproject.toml
+            # If they are missing, we might need to add them here later, but 
+            # for now, Priority 1 is Folder Visibility.
             
             # DEBUG: Print final plist
             echo "--- FINAL INFO.PLIST START ---"
