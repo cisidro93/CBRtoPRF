@@ -24,6 +24,9 @@ def main():
         
         print("Enabling LSSupportsOpeningDocumentsInPlace...")
         pl['LSSupportsOpeningDocumentsInPlace'] = True
+
+        print("Enabling UISupportsDocumentBrowser...")
+        pl['UISupportsDocumentBrowser'] = True
         
         # 2. Add Document Types (Share Sheet Visibility)
         print("Adding CFBundleDocumentTypes...")
