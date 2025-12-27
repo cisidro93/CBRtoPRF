@@ -58,6 +58,11 @@ jobs:
                 exit 1
             fi
             
+            # FAILSAFE: Explicitly set capabilities again in case Merge failed or was shallow
+            echo "Force-Reinforcing File Sharing Keys..."
+            /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" "$PLIST" || /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace true" "$PLIST" || /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" "$PLIST"
+            
             # DEBUG: Print final plist
             echo "--- FINAL INFO.PLIST START ---"
             cat "$PLIST"
