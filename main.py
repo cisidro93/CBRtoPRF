@@ -14,7 +14,7 @@ def main(page):
     page.padding = 20
     
     # 1. Boot Message
-    page.add(ft.Text("System Boot: Build #57 (Manual Plist)", color="blue", size=16, weight="bold"))
+    page.add(ft.Text("System Boot: Build #58 (Inbox & Safe Nav)", color="blue", size=16, weight="bold"))
     
     # Global State
     # FIXED: Use expanduser("~") for iOS compatibility (sandbox root)
@@ -166,6 +166,14 @@ def main(page):
                     page.update()
                     return
                 
+                # VALIDATE FILE EXISTS
+                if not os.path.exists(src):
+                    status_txt.value = "File not found!"
+                    status_txt.color = "red"
+                    log(f"Error: File not found at {src}", "red")
+                    page.update()
+                    return
+
                 state["selected_file"] = src 
                 dst = src.replace(".cbz", ".pdf")
                 
@@ -187,7 +195,7 @@ def main(page):
                         )
                         
                         if success is False:
-                             raise Exception("Conversion returned False")
+                             raise Exception("Conversion returned False (Check logs)")
 
                         status_txt.value = "Conversion Complete!"
                         status_txt.color = "green"
@@ -230,7 +238,6 @@ def main(page):
                 ft.Container(height=5),
                 ft.Row([
                     ft.ElevatedButton("Browse Files", on_click=on_browse_click, expand=True, bgcolor="orange", color="white"),
-                    # ft.ElevatedButton("System Picker (Disabled)", on_click=on_native_pick_click, expand=True, bgcolor="grey", color="white")
                 ]),
                 sw_compress,
                 ft.Container(height=10),
@@ -283,15 +290,17 @@ def main(page):
     def show_browser_ui(start_path):
         page.clean()
         
-        # Validate path
+        home = os.path.expanduser("~")
+        
+        # Validate path - default to Home if invalid
         if not os.path.exists(start_path):
             log(f"Path not found: {start_path}, resetting to Home.", "red")
-            start_path = os.path.expanduser("~")
+            start_path = home
             
         # State Update
         state["current_path"] = start_path
         
-        file_list = ft.Column() # No expand, just simple column
+        file_list = ft.Column() 
         path_display = ft.Text(start_path, color="grey", size=12)
         
         def navigate(path):
@@ -307,59 +316,61 @@ def main(page):
 
         # Build List
         try:
-            # SPECIAL CASE: ROOT SELECTION
-            if start_path == "ROOT_SELECTION":
-                file_list.controls.append(ft.Text("Select Storage Root:", weight="bold"))
-                
-                drives = get_valid_drives()
-                for drive in drives:
-                     file_list.controls.append(
-                        ft.ElevatedButton(f"💾 {drive}", on_click=lambda _, p=drive: navigate(p), width=300, bgcolor="orange", color="white")
-                    )
-                     
-                # Add Documents specifically for iOS if easily guessable?
-                docs = os.path.join(os.path.expanduser("~"), "Documents")
-                if os.path.exists(docs):
-                     file_list.controls.append(
-                        ft.ElevatedButton(f"📂 Documents", on_click=lambda _, p=docs: navigate(p), width=300, bgcolor="blue", color="white")
-                    )
-            else:
-                # Normal Directory Listing
-                parent = os.path.dirname(start_path)
-                
-                # Navigation Helpers
-                file_list.controls.append(
-                    ft.Row([
-                        ft.ElevatedButton(".. (UP)", on_click=lambda _: navigate(parent), expand=True, bgcolor="grey", color="white"),
-                        ft.ElevatedButton("Switch Drive", on_click=lambda _: navigate("ROOT_SELECTION"), expand=True, bgcolor="orange", color="white"),
-                    ])
+            # CHECK FOR INBOX (Where "Shared" files go)
+            inbox = os.path.join(home, "Documents", "Inbox")
+            if os.path.exists(inbox):
+                 file_list.controls.append(
+                    ft.ElevatedButton(f"📬 Check Inbox (Shared Files)", on_click=lambda _, p=inbox: navigate(p), width=300, bgcolor="purple", color="white")
                 )
+            
+            # Normal Directory Listing
+            parent = os.path.dirname(start_path)
+            
+            # Navigation Helpers
+            # Only show UP if we are not at Home (Sandbox Lock)
+            nav_row = []
+            if start_path != home and start_path.startswith(home):
+                 nav_row.append(ft.ElevatedButton(".. (UP)", on_click=lambda _: navigate(parent), expand=True, bgcolor="grey", color="white"))
+            
+            # Always allow going Home
+            nav_row.append(ft.ElevatedButton("Home", on_click=lambda _: navigate(home), expand=True, bgcolor="orange", color="white"))
+            
+            file_list.controls.append(ft.Row(nav_row))
+            
+            items = sorted(os.listdir(start_path))
+            for item in items:
+                full_path = os.path.join(start_path, item)
+                is_dir = os.path.isdir(full_path)
                 
-                items = sorted(os.listdir(start_path))
-                for item in items:
-                    full_path = os.path.join(start_path, item)
-                    is_dir = os.path.isdir(full_path)
-                    
-                    if is_dir:
+                if is_dir:
+                    file_list.controls.append(
+                        ft.OutlinedButton(f"📂 {item}", on_click=lambda _, p=full_path: navigate(p), width=300)
+                    )
+                else:
+                    if item.lower().endswith('.cbz'):
                         file_list.controls.append(
-                            ft.OutlinedButton(f"📂 {item}", on_click=lambda _, p=full_path: navigate(p), width=300)
+                            ft.ElevatedButton(f"📄 {item}", on_click=lambda _, p=full_path: select(p), width=300, bgcolor="blue", color="white")
                         )
                     else:
-                        if item.lower().endswith('.cbz'):
-                            file_list.controls.append(
-                                ft.ElevatedButton(f"📄 {item}", on_click=lambda _, p=full_path: select(p), width=300, bgcolor="blue", color="white")
-                            )
-                        else:
-                            file_list.controls.append(
-                                ft.ElevatedButton(f"⬜ {item}", on_click=lambda _, p=full_path: select(p), width=300, bgcolor="grey", color="white")
-                            )
+                        file_list.controls.append(
+                            ft.ElevatedButton(f"⬜ {item}", on_click=lambda _, p=full_path: select(p), width=300, bgcolor="grey", color="white")
+                        )
                         
         except Exception as e:
             file_list.controls.append(ft.Text(f"Access Error: {e}", color="red"))
-            file_list.controls.append(ft.ElevatedButton("Go Home", on_click=lambda _: navigate(os.path.expanduser("~")), bgcolor="orange", color="white"))
+            file_list.controls.append(ft.ElevatedButton("Go Home", on_click=lambda _: navigate(home), bgcolor="orange", color="white"))
 
         page.add(
             ft.Text("Select File", size=24, weight="bold"),
+            # INSTRUCTIONS
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Instructions:", weight="bold", color="blue"),
+                    ft.Text("1. If you 'Shared' a file to this app, check 'Inbox' above.", size=12),
+                    ft.Text("2. Or use iOS Files app to move files to 'CBZ Converter'.", size=12),
+                ]),
+                bgcolor="#e3f2fd", padding=10, border_radius=5
+            ),
             path_display,
             ft.Divider(),
             ft.Container(content=file_list, height=400, border=ft.border.all(1, "grey"), padding=5),
