@@ -44,6 +44,8 @@ def main(page):
            if not os.path.exists(docs):
                os.makedirs(docs)
            
+           log(f"DEBUG: Docs Path is: {docs}")
+           
            readme = os.path.join(docs, "README.txt")
            with open(readme, "w") as f:
                f.write("Welcome to CBZ Converter!\n\nPlace your .cbz files in this folder to see them in the app.\n")
