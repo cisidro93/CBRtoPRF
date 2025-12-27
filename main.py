@@ -8,10 +8,10 @@ import time
 conversion_engine = None
 
 def main(page):
-    page.title = "CBZ Converter (Page Swap)"
-    page.scroll = "auto"
+    page.title = "CBZ Converter (iOS Safe)"
+    # page.scroll = "auto"  <-- REMOVED to prevent Red Screen
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.padding = 20
+    page.padding = 10
     
     # Global State
     state = {
@@ -24,16 +24,22 @@ def main(page):
     }
     
     # --- GLOBAL UI COMPONENTS ---
-    # --- GLOBAL UI COMPONENTS ---
-    log_column = ft.Column(scroll="auto")
+    # ListView is safe for potentially infinite logs inside a fixed container
+    log_list = ft.ListView(expand=True, spacing=2, auto_scroll=True)
     
-    # 1. Boot Message (Add IMMEDIATELY so logs work)
+    # 1. Boot Message
     boot_text = ft.Text("System Boot: Initializing...", color="blue", size=16, weight="bold")
-    page.add(boot_text, log_column)
+    
+    # Main Container
+    main_layout = ft.Column(expand=True, controls=[
+        boot_text,
+        ft.Container(content=log_list, expand=True, border=ft.border.all(1, "#eeeeee"), padding=5)
+    ])
+    page.add(main_layout)
     
     def log(msg, color="black"):
         print(msg)
-        log_column.controls.append(ft.Text(msg, color=color, size=12))
+        log_list.controls.append(ft.Text(msg, color=color, size=12))
         try:
             page.update()
         except:
@@ -53,6 +59,7 @@ def main(page):
                 log(f"Selected: {selected_path}", "blue")
                 show_main_ui()
 
+        # Fix for kwargs error: set property after init
         file_picker = ft.FilePicker()
         file_picker.on_result = on_dialog_result
         page.overlay.append(file_picker)
@@ -89,8 +96,8 @@ def main(page):
 
     # --- SETTINGS SCREEN ---
     def show_settings_ui():
-        page.clean()
-        page.add(log_column) # KEEP LOGS VISIBLE
+        # Clear main layout controls but keep structure if possible
+        main_layout.controls.clear()
         
         txt_sender = ft.TextField(label="Your Gmail", value=state["email_sender"])
         txt_pass = ft.TextField(label="App Password", value=state["email_password"], password=True, can_reveal_password=True)
@@ -105,7 +112,7 @@ def main(page):
         def cancel_settings(e):
             show_main_ui()
             
-        page.add(
+        main_layout.controls.extend([
             ft.Text("Settings", size=24, weight="bold"),
             ft.Text("Kindle / Email Configuration", size=16, weight="bold"),
             txt_sender,
@@ -115,22 +122,30 @@ def main(page):
             ft.Row([
                 ft.ElevatedButton("Save", on_click=save_settings, bgcolor="blue", color="white"),
                 ft.TextButton("Cancel", on_click=cancel_settings)
-            ])
-        )
+            ]),
+            ft.Divider(),
+            ft.Text("Logs:", weight="bold"),
+            ft.Container(content=log_list, height=100, border=ft.border.all(1, "grey"))
+        ])
         page.update()
 
     # --- MAIN CONVERTER SCREEN ---
     def show_main_ui():
         try:
             log("Entering UI Build...")
-            page.clean()
-            page.add(log_column) # RESTORE LOGS
+            # SAFE LAYOUT: 
+            # 1. Scrollable Content Area (Top)
+            # 2. Fixed Divider
+            # 3. Fixed Log Area (Bottom)
+            
+            main_layout.controls.clear()
+            
+            content_col = ft.Column(scroll="auto", expand=True)
             
             log("Building Controls...")
             path_input = ft.TextField(
                 label="File Path", 
                 value=state["selected_file"], 
-                expand=True
             )
             
             # New Feature Controls
@@ -221,8 +236,8 @@ def main(page):
                 threading.Thread(target=worker).start()
                 
             log("Adding Controls to Page...")
-            # Layout
-            page.add(
+            
+            content_col.controls.extend([
                 ft.Row([
                     ft.Text("CBZ to PDF", size=24, weight="bold"),
                     ft.TextButton("[Settings]", on_click=on_settings_click) 
@@ -240,7 +255,13 @@ def main(page):
                 ft.Container(height=20),
                 progress_bar,
                 ft.Row([percent_txt, status_txt], spacing=10)
-            )
+            ])
+            
+            # Add to Main Layout: Content (Top, Expand), Divider, Logs (Bottom, Fixed)
+            main_layout.controls.append(content_col)
+            main_layout.controls.append(ft.Divider())
+            main_layout.controls.append(ft.Container(content=log_list, height=120, border=ft.border.all(1, "#eeeeee")))
+            
             page.update()
             log("UI Build Complete!", "green")
             
