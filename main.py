@@ -24,7 +24,12 @@ def main(page):
     }
     
     # --- GLOBAL UI COMPONENTS ---
+    # --- GLOBAL UI COMPONENTS ---
     log_column = ft.Column(scroll="auto")
+    
+    # 1. Boot Message (Add IMMEDIATELY so logs work)
+    boot_text = ft.Text("System Boot: Initializing...", color="blue", size=16, weight="bold")
+    page.add(boot_text, log_column)
     
     def log(msg, color="black"):
         print(msg)
@@ -32,27 +37,30 @@ def main(page):
         try:
             page.update()
         except:
-            pass # catch update errors if page isn't ready
-
-    # Native Picker (Global Init)
-    def on_dialog_result(e: ft.FilePickerResultEvent):
-        if e.files:
-            selected_path = e.files[0].path
-            state["selected_file"] = selected_path
-            state["current_path"] = os.path.dirname(selected_path)
-            log(f"Selected: {selected_path}", "blue")
-            
-            # If main UI is active, try to update it (dirty way: rebuild)
-            show_main_ui()
-
-    file_picker = ft.FilePicker(on_result=on_dialog_result)
-    page.overlay.append(file_picker)
-
-    # 1. Boot Message
-    boot_text = ft.Text("System Boot: Initializing...", color="blue", size=16, weight="bold")
-    page.add(boot_text, log_column)
+            pass 
 
     log(f"Python: {sys.version}")
+    
+    # Native Picker (Global Init)
+    file_picker = None
+    try:
+        log("Init: FilePicker...")
+        def on_dialog_result(e: ft.FilePickerResultEvent):
+            if e.files:
+                selected_path = e.files[0].path
+                state["selected_file"] = selected_path
+                state["current_path"] = os.path.dirname(selected_path)
+                log(f"Selected: {selected_path}", "blue")
+                show_main_ui()
+
+        file_picker = ft.FilePicker(on_result=on_dialog_result)
+        page.overlay.append(file_picker)
+        page.update()
+        log("Init: FilePicker Success", "green")
+    except Exception as e:
+        log(f"CRITICAL: FilePicker Init Failed: {e}", "red")
+        log(traceback.format_exc(), "red")
+
     log("Mode: Full Page Browser (No Dialogs)")
     
     def load_engine_click(e):
