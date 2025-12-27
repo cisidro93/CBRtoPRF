@@ -45,10 +45,21 @@ jobs:
           if [ -n "$APP_PATH" ]; then
             echo "Found app at: $APP_PATH"
             
-            # DEBUG: Check if Info.plist has our settings
-            echo "--- INFO.PLIST CONTENT START ---"
-            defaults read "$APP_PATH/Info.plist" || cat "$APP_PATH/Info.plist"
-            echo "--- INFO.PLIST CONTENT END ---"
+            # --- MANUAL OVERRIDE: Force Inject Info.plist keys ---
+            # Flet config seems to be ignored, so we do it the hard way.
+            PLIST="$APP_PATH/Info.plist"
+            
+            echo "Injecting UIFileSharingEnabled..."
+            /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" "$PLIST" || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled bool true" "$PLIST"
+            
+            echo "Injecting LSSupportsOpeningDocumentsInPlace..."
+            /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" "$PLIST" || /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace bool true" "$PLIST"
+            
+            # DEBUG: Print final plist
+            echo "--- FINAL INFO.PLIST START ---"
+            cat "$PLIST"
+            echo "--- FINAL INFO.PLIST END ---"
+            # -----------------------------------------------------
             
             mkdir -p Payload
             cp -r "$APP_PATH" Payload/
