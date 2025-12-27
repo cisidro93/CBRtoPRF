@@ -53,7 +53,8 @@ def main(page):
                 log(f"Selected: {selected_path}", "blue")
                 show_main_ui()
 
-        file_picker = ft.FilePicker(on_result=on_dialog_result)
+        file_picker = ft.FilePicker()
+        file_picker.on_result = on_dialog_result
         page.overlay.append(file_picker)
         page.update()
         log("Init: FilePicker Success", "green")
