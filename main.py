@@ -23,15 +23,34 @@ def main(page):
         "email_recipient": ""
     }
     
-    # 1. Boot Message
-    boot_text = ft.Text("System Boot: Initializing...", color="blue", size=16, weight="bold")
+    # --- GLOBAL UI COMPONENTS ---
     log_column = ft.Column(scroll="auto")
-    page.add(boot_text, log_column)
-
+    
     def log(msg, color="black"):
         print(msg)
         log_column.controls.append(ft.Text(msg, color=color, size=12))
-        page.update()
+        try:
+            page.update()
+        except:
+            pass # catch update errors if page isn't ready
+
+    # Native Picker (Global Init)
+    def on_dialog_result(e: ft.FilePickerResultEvent):
+        if e.files:
+            selected_path = e.files[0].path
+            state["selected_file"] = selected_path
+            state["current_path"] = os.path.dirname(selected_path)
+            log(f"Selected: {selected_path}", "blue")
+            
+            # If main UI is active, try to update it (dirty way: rebuild)
+            show_main_ui()
+
+    file_picker = ft.FilePicker(on_result=on_dialog_result)
+    page.overlay.append(file_picker)
+
+    # 1. Boot Message
+    boot_text = ft.Text("System Boot: Initializing...", color="blue", size=16, weight="bold")
+    page.add(boot_text, log_column)
 
     log(f"Python: {sys.version}")
     log("Mode: Full Page Browser (No Dialogs)")
@@ -62,6 +81,7 @@ def main(page):
     # --- SETTINGS SCREEN ---
     def show_settings_ui():
         page.clean()
+        page.add(log_column) # KEEP LOGS VISIBLE
         
         txt_sender = ft.TextField(label="Your Gmail", value=state["email_sender"])
         txt_pass = ft.TextField(label="App Password", value=state["email_password"], password=True, can_reveal_password=True)
@@ -91,32 +111,11 @@ def main(page):
         page.update()
 
     # --- MAIN CONVERTER SCREEN ---
-    # --- MAIN CONVERTER SCREEN ---
-    # --- MAIN CONVERTER SCREEN ---
     def show_main_ui():
         try:
             log("Entering UI Build...")
             page.clean()
-            
-            # --- Native Picker Setup (iOS/Desktop) ---
-            log("Init Picker...")
-            def on_dialog_result(e: ft.FilePickerResultEvent):
-                if e.files:
-                    selected_path = e.files[0].path
-                    path_input.value = selected_path
-                    state["selected_file"] = selected_path
-                    state["current_path"] = os.path.dirname(selected_path)
-                    
-                    # Update Start Button
-                    status_txt.value = f"Selected: {os.path.basename(selected_path)}"
-                    status_txt.color = "blue"
-                    page.update()
-
-            file_picker = ft.FilePicker(on_result=on_dialog_result)
-            
-            log("Adding Picker to Overlay...")
-            page.overlay.append(file_picker)
-            page.update()
+            page.add(log_column) # RESTORE LOGS
             
             log("Building Controls...")
             path_input = ft.TextField(
@@ -143,6 +142,7 @@ def main(page):
                 show_settings_ui()
                 
             def on_native_pick_click(e):
+                log("Opening Native Picker...")
                 file_picker.pick_files(allow_multiple=False, allowed_extensions=["cbz"])
 
             def on_progress(p, msg):
