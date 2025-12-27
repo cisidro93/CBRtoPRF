@@ -14,7 +14,7 @@ def main(page):
     page.padding = 20
     
     # 1. Boot Message
-    page.add(ft.Text("System Boot: Build #49 (iOS Path Fix)", color="blue", size=16, weight="bold"))
+    page.add(ft.Text("System Boot: Build #53 (Clean Storage)", color="blue", size=16, weight="bold"))
     
     # Global State
     # FIXED: Use expanduser("~") for iOS compatibility (sandbox root)
@@ -53,11 +53,6 @@ def main(page):
                
            log(f"Storage Init: Wrote {readme}")
            
-           # Also try to make a 'Runner' folder explicitly if Flet uses that convention (unlikely but safe)
-           runner = os.path.join(os.path.expanduser("~"), "Runner")
-           if not os.path.exists(runner):
-               os.makedirs(runner)
-               
         except Exception as e:
             log(f"Storage Error: {e}", "red")
 
