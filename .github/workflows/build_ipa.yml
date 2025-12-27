@@ -26,7 +26,7 @@ jobs:
 
       - name: Build IPA (Unsigned)
         run: |
-          cp requirements_mobile.txt requirements.txt
+          echo "flet" > requirements.txt
           yes | flet build ipa . --verbose
           
       - name: Debug Build Output
