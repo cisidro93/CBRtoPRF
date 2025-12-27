@@ -40,6 +40,29 @@ def main(page):
         except:
             pass 
 
+    # --- INIT: FORCE STORAGE CREATION ---
+    def init_storage():
+        try:
+           docs = os.path.join(os.path.expanduser("~"), "Documents")
+           if not os.path.exists(docs):
+               os.makedirs(docs)
+           
+           readme = os.path.join(docs, "README.txt")
+           with open(readme, "w") as f:
+               f.write("Welcome to CBZ Converter!\n\nPlace your .cbz files in this folder to see them in the app.\n")
+               
+           log(f"Storage Init: Wrote {readme}")
+           
+           # Also try to make a 'Runner' folder explicitly if Flet uses that convention (unlikely but safe)
+           runner = os.path.join(os.path.expanduser("~"), "Runner")
+           if not os.path.exists(runner):
+               os.makedirs(runner)
+               
+        except Exception as e:
+            log(f"Storage Error: {e}", "red")
+
+    init_storage()
+
     log(f"Python: {sys.version}")
     log(f"Home Dir: {os.path.expanduser('~')}")
     log(f"CWD: {os.getcwd()}")
