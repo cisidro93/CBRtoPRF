@@ -45,7 +45,7 @@ def main(page):
     file_picker = None
     try:
         log("Init: FilePicker...")
-        def on_dialog_result(e: ft.FilePickerResultEvent):
+        def on_dialog_result(e):
             if e.files:
                 selected_path = e.files[0].path
                 state["selected_file"] = selected_path
