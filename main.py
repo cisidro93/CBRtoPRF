@@ -14,16 +14,27 @@ def main(page):
     page.padding = 20
     
     # 1. Boot Message
-    page.add(ft.Text("System Boot: Build #61 (Default: Documents)", color="blue", size=16, weight="bold"))
+    page.add(ft.Text("System Boot: Build #62 (Visual Fixes)", color="blue", size=16, weight="bold"))
     
-    # Global State
-    # FIXED: Use expanduser("~") for iOS compatibility (sandbox root)
-    # Update: Default to Documents since that is what Files app shows
-    default_path = os.path.join(os.path.expanduser("~"), "Documents")
-    
-    # Fallback for Android if needed (though ~ usually works)
-    if os.path.exists("/storage/emulated/0/Download"):
-        default_path = "/storage/emulated/0/Download"
+    # ... (rest of code)
+
+            # EXPLICIT DROP ZONE
+            drop_zone = ft.DragTarget(
+                group="cbr",
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Icon(name=ft.icons.cloud_upload, size=40, color="white"),
+                        ft.Text("DROP FILE HERE", color="white", weight="bold"),
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=5),
+                    bgcolor="blue",
+                    padding=20,
+                    border_radius=10,
+                    width=300,  # Explicit Width
+                    height=120, # Explicit Height
+                    alignment=ft.alignment.center,
+                ),
+                on_accept=on_drag_accept,
+            )
     
     state = {
         "current_path": default_path,
@@ -273,10 +284,12 @@ def main(page):
                     content=ft.Column([
                         ft.Icon(name=ft.icons.cloud_upload, size=40, color="white"),
                         ft.Text("DROP FILE HERE", color="white", weight="bold"),
-                    ], alignment=ft.MainAxisAlignment.CENTER),
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=5),
                     bgcolor="blue",
                     padding=20,
                     border_radius=10,
+                    width=300,
+                    height=120,
                     alignment=ft.alignment.center,
                 ),
                 on_accept=on_drag_accept,
