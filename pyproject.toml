@@ -17,4 +17,12 @@ LSSupportsOpeningDocumentsInPlace = true
 CFBundleTypeName = "Comic Book Archive"
 CFBundleTypeRole = "Editor"
 LSHandlerRank = "Owner"
-LSItemContentTypes = ["com.pkware.zip-archive", "public.zip-archive", "org.7-zip.7-zip-archive", "public.data"]
+LSItemContentTypes = [
+    "com.pkware.zip-archive", 
+    "public.zip-archive", 
+    "public.archive",
+    "public.data", 
+    "com.macitbetter.cbz-archive", 
+    "com.google.cbz", 
+    "application/x-cbz"
+]

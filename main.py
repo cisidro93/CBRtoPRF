@@ -14,7 +14,7 @@ def main(page):
     page.padding = 20
     
     # 1. Boot Message
-    page.add(ft.Text("System Boot: Build #55 (Folder Fix)", color="blue", size=16, weight="bold"))
+    page.add(ft.Text("System Boot: Build #56 (Plist Debug)", color="blue", size=16, weight="bold"))
     
     # Global State
     # FIXED: Use expanduser("~") for iOS compatibility (sandbox root)
