@@ -14,7 +14,7 @@ def main(page):
     page.padding = 20
     
     # 1. Boot Message
-    page.add(ft.Text("System Boot: Build #59 (Drag & Drop)", color="blue", size=16, weight="bold"))
+    page.add(ft.Text("System Boot: Build #60 (DropZone + Refresh)", color="blue", size=16, weight="bold"))
     
     # Global State
     # FIXED: Use expanduser("~") for iOS compatibility (sandbox root)
@@ -181,6 +181,19 @@ def main(page):
                 percent_txt.value = f"{int(p)}%"
                 page.update()
                 
+            def on_drag_accept(e: ft.DragTargetAcceptEvent):
+                 src = e.data
+                 # DragTarget often returns a JSON string or just the path string on some platforms
+                 # On mobile this might be tricky, but let's try assuming it's the path or uri
+                 log(f"Zone Dropped: {src}", "green")
+                 # Try to clean if it looks like a file url
+                 if src.startswith("file://"):
+                     src = src[7:]
+                 
+                 state["selected_file"] = src
+                 path_input.value = src
+                 page.update()
+
             def run_convert(e):
                 src = path_input.value
                 if not src:
@@ -251,6 +264,22 @@ def main(page):
                 
             log("Adding Controls to Page...")
             
+            # EXPLICIT DROP ZONE
+            drop_zone = ft.DragTarget(
+                group="cbr",
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Icon(name=ft.icons.cloud_upload, size=40, color="white"),
+                        ft.Text("DROP FILE HERE", color="white", weight="bold"),
+                    ], alignment=ft.MainAxisAlignment.CENTER),
+                    bgcolor="blue",
+                    padding=20,
+                    border_radius=10,
+                    alignment=ft.alignment.center,
+                ),
+                on_accept=on_drag_accept,
+            )
+
             page.add(
                 ft.Row([
                     ft.Text("CBZ to PDF", size=24, weight="bold"),
@@ -259,6 +288,8 @@ def main(page):
                 ft.Container(height=10),
                 path_input,
                 ft.Container(height=5),
+                drop_zone, # ADDED ZONE
+                ft.Container(height=10),
                 ft.Row([
                     ft.ElevatedButton("Browse Files", on_click=on_browse_click, expand=True, bgcolor="orange", color="white"),
                 ]),
@@ -357,6 +388,9 @@ def main(page):
             
             # Always allow going Home
             nav_row.append(ft.ElevatedButton("Home", on_click=lambda _: navigate(home), expand=True, bgcolor="orange", color="white"))
+            
+            # Add Refresh Button
+            nav_row.append(ft.IconButton(ft.icons.REFRESH, on_click=lambda _: show_browser_ui(start_path), tooltip="Refresh"))
             
             file_list.controls.append(ft.Row(nav_row))
             
