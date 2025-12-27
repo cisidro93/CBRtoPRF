@@ -8,3 +8,8 @@ url = "https://github.com/chisidro93/cbz_to_pdf"
 "android.permission.READ_EXTERNAL_STORAGE" = true
 "android.permission.WRITE_EXTERNAL_STORAGE" = true
 "android.permission.MANAGE_EXTERNAL_STORAGE" = true
+
+[tool.flet.ios.info_plist]
+UIFileSharingEnabled = true
+LSSupportsOpeningDocumentsInPlace = true
+UISupportsDocumentBrowser = true
