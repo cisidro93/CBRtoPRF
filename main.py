@@ -14,27 +14,11 @@ def main(page):
     page.padding = 20
     
     # 1. Boot Message
-    page.add(ft.Text("System Boot: Build #62 (Visual Fixes)", color="blue", size=16, weight="bold"))
+    page.add(ft.Text("System Boot: Build #63 (Syntax Fix)", color="blue", size=16, weight="bold"))
     
     # ... (rest of code)
 
-            # EXPLICIT DROP ZONE
-            drop_zone = ft.DragTarget(
-                group="cbr",
-                content=ft.Container(
-                    content=ft.Column([
-                        ft.Icon(name=ft.icons.cloud_upload, size=40, color="white"),
-                        ft.Text("DROP FILE HERE", color="white", weight="bold"),
-                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=5),
-                    bgcolor="blue",
-                    padding=20,
-                    border_radius=10,
-                    width=300,  # Explicit Width
-                    height=120, # Explicit Height
-                    alignment=ft.alignment.center,
-                ),
-                on_accept=on_drag_accept,
-            )
+
     
     state = {
         "current_path": default_path,
