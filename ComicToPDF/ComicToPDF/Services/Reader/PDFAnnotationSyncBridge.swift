@@ -169,12 +169,24 @@ final class PDFAnnotationSyncBridge: Sendable {
         applyStoreAnnotations(for: pdfID, to: document)
         guard let targetURL = destinationURL ?? document.documentURL else { return }
         
-        // Offload disk persistence to background thread to preserve 120Hz ProMotion UI responsiveness
-        Task.detached(priority: .utility) {
+        // Serialize PDF to Sendable Data on MainActor, then offload disk I/O to background Task
+        guard let pdfData = document.dataRepresentation() else {
             let didAccess = targetURL.startAccessingSecurityScopedResource()
             defer { if didAccess { targetURL.stopAccessingSecurityScopedResource() } }
             document.write(to: targetURL)
-            Logger.shared.log("PDFAnnotationSync: Persisted PDF with annotations to disk at \(targetURL.lastPathComponent)", category: "PDF", type: .success)
+            return
+        }
+        
+        // Offload disk persistence to background thread with Sendable Data to preserve 120Hz ProMotion UI responsiveness
+        Task.detached(priority: .utility) {
+            let didAccess = targetURL.startAccessingSecurityScopedResource()
+            defer { if didAccess { targetURL.stopAccessingSecurityScopedResource() } }
+            do {
+                try pdfData.write(to: targetURL, options: .atomic)
+                Logger.shared.log("PDFAnnotationSync: Persisted PDF with annotations to disk at \(targetURL.lastPathComponent)", category: "PDF", type: .success)
+            } catch {
+                Logger.shared.log("PDFAnnotationSync: Failed writing to disk at \(targetURL.lastPathComponent): \(error.localizedDescription)", category: "PDF", type: .error)
+            }
         }
     }
 
