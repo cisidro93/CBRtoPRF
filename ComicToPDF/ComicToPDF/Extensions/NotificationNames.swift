@@ -51,4 +51,8 @@ extension Notification.Name {
     // MARK: Manual Crop Editor
     /// Opens the interactive visual manual crop editor sheet in the active reader.
     static let openManualCropEditor   = Notification.Name("OpenManualCropEditor")
+
+    // MARK: Annotations & Study Notes
+    /// Fired when annotations (highlights, notes, ink) are added, updated, or deleted.
+    static let annotationsDidChange   = Notification.Name("InksyncPro.annotationsDidChange")
 }

@@ -731,6 +731,19 @@ struct StudyNotebookView: View {
             .onReceive(NotificationCenter.default.publisher(for: .inkTabGoToLibraryRoot)) { _ in
                 selectedBookForReader = nil
             }
+            .onReceive(NotificationCenter.default.publisher(for: .annotationsDidChange)) { notification in
+                if let targetPDFID = notification.userInfo?["pdfID"] as? UUID,
+                   let bookUUID = UUID(uuidString: bookID),
+                   targetPDFID == bookUUID {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        refreshHighlights()
+                    }
+                } else if notification.userInfo?["pdfID"] == nil {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        refreshHighlights()
+                    }
+                }
+            }
             .onAppear {
                 Logger.shared.log("StudyNotebook appeared for book: '\(bookTitle)'", category: "Notebook", type: .info)
                 initializeSDAnnotation()
@@ -883,7 +896,7 @@ struct StudyNotebookView: View {
         }
         
         // Fetch existing highlights for this book
-        let hDescriptor = FetchDescriptor<SDAnnotation>(predicate: #Predicate { $0.kindRaw == "highlight" && $0.pdfID == targetPDFID })
+        let hDescriptor = FetchDescriptor<SDAnnotation>(predicate: #Predicate { ($0.kindRaw == "highlight" || $0.kindRaw == "underline" || $0.kindRaw == "strikeOut") && $0.pdfID == targetPDFID })
         if let h = try? modelContext.fetch(hDescriptor) {
             self.bookHighlights = h.sorted { $0.createdAt > $1.createdAt }
             Logger.shared.log("Fetched \(h.count) highlight(s) for '\(bookTitle)'", category: "Notebook", type: .info)
@@ -906,7 +919,7 @@ struct StudyNotebookView: View {
         if let actualUUID = UUID(uuidString: bookID) {
             targetPDFID = actualUUID
         }
-        let hDescriptor = FetchDescriptor<SDAnnotation>(predicate: #Predicate { $0.kindRaw == "highlight" && $0.pdfID == targetPDFID })
+        let hDescriptor = FetchDescriptor<SDAnnotation>(predicate: #Predicate { ($0.kindRaw == "highlight" || $0.kindRaw == "underline" || $0.kindRaw == "strikeOut") && $0.pdfID == targetPDFID })
         if let h = try? modelContext.fetch(hDescriptor) {
             self.bookHighlights = h.sorted { $0.createdAt > $1.createdAt }
         }

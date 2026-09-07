@@ -46,6 +46,7 @@ final class PDFAnnotationSyncBridge: Sendable {
 
                 // Check if this annotation is already attached to the page (prevent duplicates)
                 let alreadyPresent = page.annotations.contains { native in
+                    if native.userName == annotation.id.uuidString { return true }
                     guard native.type == nativeTypeName || native.type == "/\(nativeTypeName)" || native.type == nativeType.rawValue else { return false }
                     if let text = annotation.selectedText, let c = native.contents, !text.isEmpty && c == text {
                         return true
@@ -83,6 +84,7 @@ final class PDFAnnotationSyncBridge: Sendable {
                         
                         let unionBox = PDFHighlightGeometryHelper.unionBounds(for: validRects)
                         let nativeHighlight = PDFAnnotation(bounds: unionBox, forType: nativeType, withProperties: nil)
+                        nativeHighlight.userName = annotation.id.uuidString
                         nativeHighlight.color = highlightColor
                         nativeHighlight.contents = text
                         nativeHighlight.shouldDisplay = true
@@ -109,6 +111,7 @@ final class PDFAnnotationSyncBridge: Sendable {
                     }
                     guard bounds.width > 2, bounds.height > 2 else { continue }
                     let nativeHighlight = PDFAnnotation(bounds: bounds, forType: nativeType, withProperties: nil)
+                    nativeHighlight.userName = annotation.id.uuidString
                     nativeHighlight.color = highlightColor
                     nativeHighlight.contents = annotation.selectedText ?? annotation.noteText
                     nativeHighlight.shouldDisplay = true
@@ -160,11 +163,14 @@ final class PDFAnnotationSyncBridge: Sendable {
     // MARK: - Sync & Persist to Document Disk Storage
     
     /// Synchronizes all in-memory and SwiftData annotations from `AnnotationStore` directly into the live `PDFDocument`
-    /// and writes the updated document back to disk.
+    /// and writes the updated document back to disk asynchronously in the background.
     @MainActor
     func syncStoreToDocument(for pdfID: UUID, in document: PDFDocument, at destinationURL: URL? = nil) {
         applyStoreAnnotations(for: pdfID, to: document)
-        if let targetURL = destinationURL ?? document.documentURL {
+        guard let targetURL = destinationURL ?? document.documentURL else { return }
+        
+        // Offload disk persistence to background thread to preserve 120Hz ProMotion UI responsiveness
+        Task.detached(priority: .utility) {
             let didAccess = targetURL.startAccessingSecurityScopedResource()
             defer { if didAccess { targetURL.stopAccessingSecurityScopedResource() } }
             document.write(to: targetURL)

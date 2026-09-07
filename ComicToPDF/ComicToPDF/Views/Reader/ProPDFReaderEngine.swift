@@ -493,6 +493,13 @@ struct ProPDFReaderEngine: View {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
                         self.pendingLinkPreview = (destIndex, destPage)
                     }
+                },
+                onScannedPageDetected: {
+                    showToastMessage("Scanned Page — Apple Pencil Highlighter Active")
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                        isPencilMode = true
+                    }
+                    HapticEngine.medium()
                 }
             )
             .applyFilterPreset(activeFilterPreset)
@@ -1226,6 +1233,7 @@ struct ProPDFReaderEngine: View {
         // Build the RGBA UIColor directly — never via hex round-trip which can
         // silently collapse HSL saturation for colors like Emerald or Electric Blue.
         let highlightColor = color.directHighlightUIColor
+        let annotationID = UUID()
         var didAddNative = false
         var savedBounds: CodableCGRect? = nil
         var targetPageIndex = currentPageIndex
@@ -1261,6 +1269,7 @@ struct ProPDFReaderEngine: View {
                 if !validRects.isEmpty {
                     let unionBox = PDFHighlightGeometryHelper.unionBounds(for: validRects)
                     let ann = PDFAnnotation(bounds: unionBox, forType: nativeType, withProperties: nil)
+                    ann.userName = annotationID.uuidString
                     ann.color = highlightColor
                     ann.contents = text
                     ann.shouldDisplay = true
@@ -1294,6 +1303,7 @@ struct ProPDFReaderEngine: View {
                     )
                 }
                 let ann = PDFAnnotation(bounds: unionBox, forType: nativeType, withProperties: nil)
+                ann.userName = annotationID.uuidString
                 ann.color = highlightColor
                 ann.contents = text
                 ann.shouldDisplay = true
@@ -1324,6 +1334,7 @@ struct ProPDFReaderEngine: View {
                     )
                 }
                 let ann = PDFAnnotation(bounds: unionBox, forType: nativeType, withProperties: nil)
+                ann.userName = annotationID.uuidString
                 ann.color = highlightColor
                 ann.contents = text
                 ann.shouldDisplay = true
@@ -1346,6 +1357,7 @@ struct ProPDFReaderEngine: View {
             )
             if rect.width > 2 && rect.height > 2 {
                 let ann = PDFAnnotation(bounds: rect, forType: nativeType, withProperties: nil)
+                ann.userName = annotationID.uuidString
                 ann.color = highlightColor
                 ann.contents = text
                 ann.shouldDisplay = true
@@ -1364,6 +1376,7 @@ struct ProPDFReaderEngine: View {
 
         // ── Persist to AnnotationStore and sync to disk ───────────────────────────
         let highlight = Annotation(
+            id: annotationID,
             pdfID: pdf.id,
             pageIndex: targetPageIndex,
             chapterTitle: "Page \(targetPageIndex + 1)",
@@ -1388,38 +1401,44 @@ struct ProPDFReaderEngine: View {
     }
 
     /// Forces PDFView to repaint annotation tiles on the target page immediately.
-    /// NOTE: We deliberately do NOT call go(to:) here — that fires PDFViewPageChanged
-    /// outside of our isNavigatingProgrammatically guard and causes page-jump feedback loops.
+    /// Uses a two-phase run-loop dispatch to invalidate CATiledLayer cached bitmap tiles,
+    /// guaranteeing instant 120Hz visual rendering of new highlights on iOS/iPadOS.
     private func forcePageRedraw(_ pdfView: PDFView, pageIndex: Int) {
         pdfView.layoutDocumentView()
         pdfView.setNeedsDisplay()
         
-        // Micro-jitter on scaleFactor forces PDFKit's background tile rendering engine
-        // to invalidate cached bitmap tiles and re-rasterize the page with new annotations.
         let currentScale = pdfView.scaleFactor
-        if currentScale > 0.01 {
-            pdfView.scaleFactor = currentScale + 0.0001
-            pdfView.scaleFactor = currentScale
-        }
-
-        if let docView = pdfView.documentView {
-            docView.setNeedsLayout()
-            docView.layoutIfNeeded()
-            docView.setNeedsDisplay()
-            for pageView in docView.subviews {
-                pageView.setNeedsDisplay()
-                pageView.layer.setNeedsDisplay()
-                for tile in pageView.subviews {
-                    tile.setNeedsDisplay()
-                    tile.layer.setNeedsDisplay()
+        if currentScale > 0.001 {
+            // Phase 1: Displace scaleFactor slightly across run-loop boundary to break the CATiledLayer tile cache
+            pdfView.scaleFactor = currentScale * 1.0005
+            pdfView.layoutDocumentView()
+            
+            // Phase 2: Restore exact scaleFactor on next frame and redraw view hierarchy
+            DispatchQueue.main.async {
+                pdfView.scaleFactor = currentScale
+                pdfView.layoutDocumentView()
+                pdfView.setNeedsDisplay()
+                
+                if let docView = pdfView.documentView {
+                    docView.setNeedsLayout()
+                    docView.layoutIfNeeded()
+                    docView.setNeedsDisplay()
+                    for pageView in docView.subviews {
+                        pageView.setNeedsDisplay()
+                        pageView.layer.setNeedsDisplay()
+                        for tile in pageView.subviews {
+                            tile.setNeedsDisplay()
+                            tile.layer.setNeedsDisplay()
+                        }
+                    }
                 }
-            }
-        }
-        for sv in pdfView.subviews {
-            sv.setNeedsDisplay()
-            for inner in sv.subviews {
-                inner.setNeedsDisplay()
-                inner.layer.setNeedsDisplay()
+                for sv in pdfView.subviews {
+                    sv.setNeedsDisplay()
+                    for inner in sv.subviews {
+                        inner.setNeedsDisplay()
+                        inner.layer.setNeedsDisplay()
+                    }
+                }
             }
         }
     }
@@ -1659,6 +1678,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
     var onHighlightRequested: (() -> Void)? = nil
     var onScaleChanged: ((CGFloat) -> Void)? = nil
     var onHyperlinkSelected: ((Int, PDFPage) -> Void)? = nil
+    var onScannedPageDetected: (() -> Void)? = nil
 
     func makeUIView(context: Context) -> PDFView {
         let pdfView = ProPDFHighlightableView()
@@ -1708,24 +1728,27 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         // Single-tap must wait for double-tap to fail — standard iOS pattern
         tapGesture.require(toFail: doubleTap)
 
-        // ── Glide (word-snap) highlight gesture (finger and Apple Pencil) ────────
-        // Allows both direct finger touches and Apple Pencil to perform fluid word-snapping
-        // text selection and trigger the highlight HUD. When markup mode or auto-draw is active,
-        // Apple Pencil strokes are intercepted by PageCanvasOverlay for smooth inking.
-        let glideRecognizer = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleGlideSelection(_:)))
-        glideRecognizer.minimumPressDuration = 0.18
-        glideRecognizer.allowableMovement = 2000
-        glideRecognizer.cancelsTouchesInView = false
-        glideRecognizer.allowedTouchTypes = [
-            NSNumber(value: UITouch.TouchType.direct.rawValue),
-            NSNumber(value: UITouch.TouchType.pencil.rawValue)
-        ]
-        glideRecognizer.delegate = context.coordinator
-        pdfView.addGestureRecognizer(glideRecognizer)
-        // CRITICAL: Single-tap must wait for glide selection to fail.
-        // Without this, lifting a finger from a word selection recognizes a tap
-        // and immediately clears the selection before the user can tap Highlight.
-        tapGesture.require(toFail: glideRecognizer)
+        // ── Finger Glide (word-snap) highlight gesture (finger only) ─────────────
+        // 180ms minimum press duration allows normal scrolling/swiping without triggering text selection.
+        let fingerGlide = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleGlideSelection(_:)))
+        fingerGlide.minimumPressDuration = 0.18
+        fingerGlide.allowableMovement = 2000
+        fingerGlide.cancelsTouchesInView = false
+        fingerGlide.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        fingerGlide.delegate = context.coordinator
+        pdfView.addGestureRecognizer(fingerGlide)
+        // Single-tap only needs to wait for finger glide to fail
+        tapGesture.require(toFail: fingerGlide)
+
+        // ── Apple Pencil Glide (instant word-snap) highlight gesture (stylus only) ──
+        // 20ms ultra-low latency allows Apple Pencil to immediately snap and select text on touch.
+        let pencilGlide = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleGlideSelection(_:)))
+        pencilGlide.minimumPressDuration = 0.02
+        pencilGlide.allowableMovement = 2000
+        pencilGlide.cancelsTouchesInView = false
+        pencilGlide.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        pencilGlide.delegate = context.coordinator
+        pdfView.addGestureRecognizer(pencilGlide)
 
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -1908,6 +1931,13 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
             switch gesture.state {
             case .began:
                 guard let page = pdfView.page(for: locationInView, nearest: true) else { return }
+                
+                // If the page has zero text glyphs (scanned comic or scanned document), switch to Pencil Highlighter
+                if page.numberOfCharacters == 0 {
+                    parent.onScannedPageDetected?()
+                    return
+                }
+                
                 let locationInPage = pdfView.convert(locationInView, to: page)
                 
                 if let match = findWordSelection(at: locationInPage, on: page) {

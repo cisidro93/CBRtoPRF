@@ -360,6 +360,13 @@ class AnnotationStore: ObservableObject {
             }
         }
 
+        // Notify UI components (StudyNotebookView, Zettelkasten Hub) immediately of the change
+        NotificationCenter.default.post(
+            name: .annotationsDidChange,
+            object: nil,
+            userInfo: ["pdfID": annotation.pdfID, "annotationID": annotation.id]
+        )
+
         // ✅ PERF: Skip NLP for Readwise imports (they already carry CSV tags) and
         // for annotations with no text content.
         guard let text = annotation.selectedText, !text.isEmpty,
@@ -386,6 +393,11 @@ class AnnotationStore: ObservableObject {
                         target.tags = tags
                         try? context.save()
                         Logger.shared.log("NLP tags backfilled (id=\(annotation.id), count=\(tags.count))", category: "Annotations", type: .success)
+                        NotificationCenter.default.post(
+                            name: .annotationsDidChange,
+                            object: nil,
+                            userInfo: ["pdfID": annotation.pdfID, "annotationID": annotation.id]
+                        )
                     }
                 }
             }
@@ -449,6 +461,12 @@ class AnnotationStore: ObservableObject {
                 }
             }
         }
+
+        NotificationCenter.default.post(
+            name: .annotationsDidChange,
+            object: nil,
+            userInfo: ["pdfID": annotation.pdfID, "annotationID": annotation.id]
+        )
     }
     
     func delete(id: UUID, pdfID: UUID) {
@@ -471,6 +489,12 @@ class AnnotationStore: ObservableObject {
                 }
             }
         }
+
+        NotificationCenter.default.post(
+            name: .annotationsDidChange,
+            object: nil,
+            userInfo: ["pdfID": pdfID, "annotationID": id]
+        )
     }
     
     // MARK: - SwiftData Persistence

@@ -195,7 +195,12 @@ struct PKCanvasRepresentation: UIViewRepresentable {
         context.coordinator.canvasView = canvasView
         
         if isMarkupEnabled {
-            canvasView.becomeFirstResponder()
+            DispatchQueue.main.async {
+                if canvasView.window != nil {
+                    canvasView.becomeFirstResponder()
+                    picker.setVisible(true, forFirstResponder: canvasView)
+                }
+            }
         }
         
         return canvasView
@@ -228,8 +233,12 @@ struct PKCanvasRepresentation: UIViewRepresentable {
         }
         
         if isMarkupEnabled {
-            uiView.becomeFirstResponder()
-            context.coordinator.toolPicker?.setVisible(true, forFirstResponder: uiView)
+            DispatchQueue.main.async {
+                if uiView.window != nil {
+                    uiView.becomeFirstResponder()
+                    context.coordinator.toolPicker?.setVisible(true, forFirstResponder: uiView)
+                }
+            }
         } else {
             uiView.resignFirstResponder()
             context.coordinator.toolPicker?.setVisible(false, forFirstResponder: uiView)
