@@ -160,6 +160,5 @@ struct EdgeBrightnessGestureZone: View {
                 )
             Spacer()
         }
-        .allowsHitTesting(false)
     }
 }

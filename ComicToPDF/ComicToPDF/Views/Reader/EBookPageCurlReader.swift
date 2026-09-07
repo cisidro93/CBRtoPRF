@@ -22,6 +22,7 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
     var onPrev: () -> Void
     var onCenterTap: () -> Void
     var onHighlightCreated: ((String) -> Void)? = nil
+    var onHighlightCreatedWithMetadata: ((String, String, String) -> Void)? = nil
     var onHighlightTapped: ((String) -> Void)? = nil
     var onTextSelected: ((String) -> Void)? = nil
     var onSelectionDismissed: (() -> Void)? = nil
@@ -106,6 +107,10 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
         context.coordinator.pageViewController = pvc
         context.coordinator.mountPrimaryWebViewOnRoot()
 
+        DispatchQueue.main.async {
+            self.webViewRef = context.coordinator.primaryWebView
+        }
+
         let initialVCs = context.coordinator.spreadViewControllers(for: initialPage)
         context.coordinator.safeSetViewControllers(initialVCs, direction: .forward, animated: false)
 
@@ -118,6 +123,12 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIPageViewController, context: Context) {
         let oldParent = context.coordinator.parent
         context.coordinator.parent = self
+
+        if self.webViewRef == nil && context.coordinator.primaryWebView != nil {
+            DispatchQueue.main.async {
+                self.webViewRef = context.coordinator.primaryWebView
+            }
+        }
 
         // If spine item (chapter) changed, reset transitioning lock and reload everything
         if oldParent.spineItem.href != self.spineItem.href {
@@ -326,6 +337,9 @@ extension EBookPageCurlReader {
 
             self.primaryWebView = wv
             self.parent.webViewRef = wv
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.webViewRef = wv
+            }
         }
 
         // MARK: - Chapter Loading
@@ -487,8 +501,7 @@ extension EBookPageCurlReader {
             viewControllerBefore viewController: UIViewController
         ) -> UIViewController? {
             guard let contentVC = viewController as? EBookPageContentViewController else { return nil }
-            let step = isDualPageMode ? 2 : 1
-            let prevIndex = contentVC.pageIndex - step
+            let prevIndex = contentVC.pageIndex - 1
             if prevIndex < 0 { return nil }
             return makePageViewController(for: prevIndex)
         }
@@ -498,8 +511,7 @@ extension EBookPageCurlReader {
             viewControllerAfter viewController: UIViewController
         ) -> UIViewController? {
             guard let contentVC = viewController as? EBookPageContentViewController else { return nil }
-            let step = isDualPageMode ? 2 : 1
-            let nextIndex = contentVC.pageIndex + step
+            let nextIndex = contentVC.pageIndex + 1
             if nextIndex >= computedTotalPages { return nil }
             return makePageViewController(for: nextIndex)
         }
@@ -601,17 +613,13 @@ extension EBookPageCurlReader {
         func precacheAdjacentSnapshots() {
             guard let wv = primaryWebView, !isTransitioning else { return }
             let current = currentPageIndex
-            let step = isDualPageMode ? 2 : 1
-            let nextIdx = current + step
-
-            guard nextIdx < computedTotalPages else { return }
 
             let config = WKSnapshotConfiguration()
             config.rect = wv.bounds
             config.afterScreenUpdates = false
             wv.takeSnapshot(with: config) { [weak self] image, _ in
                 guard let image = image, let self = self else { return }
-                self.pageSnapshots[nextIdx] = image
+                self.pageSnapshots[current] = image
             }
         }
 
@@ -872,7 +880,10 @@ extension EBookPageCurlReader {
         // MARK: - WKNavigationDelegate & Metrics
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            parent.webViewRef = webView
+            self.parent.webViewRef = webView
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.webViewRef = webView
+            }
             restoreHighlights(in: webView)
             
             // Take initial snapshot of active page once loaded
@@ -1079,6 +1090,8 @@ extension EBookPageCurlReader {
 
         private func handleHighlightRequest() {
             guard let wv = primaryWebView else { return }
+            let colorHex = parent.prefs.defaultHighlightColor.rawValue
+            let newID = UUID().uuidString
             let js = """
             (function() {
                 var sel = window.getSelection();
@@ -1092,17 +1105,35 @@ extension EBookPageCurlReader {
                 if (!text && window.__lastSelectedText) text = window.__lastSelectedText.trim();
                 if (!text || text.length === 0) return "";
                 if (window.applyInksyncHighlight) {
-                    window.applyInksyncHighlight('', '#FFD600', '', 'highlight');
+                    window.applyInksyncHighlight('\(newID)', '\(colorHex)', '', 'highlight');
                 }
-                return text;
+                return JSON.stringify({ id: '\(newID)', text: text, color: '\(colorHex)' });
             })();
             """
             wv.evaluateJavaScript(js) { [weak self] result, _ in
-                if let text = result as? String, !text.isEmpty {
-                    self?.parent.onHighlightCreated?(text)
-                    if let cur = self?.currentPageIndex {
-                        self?.takePageSnapshot(for: cur)
+                guard let self = self else { return }
+                var textToReport = ""
+                var highlightID = newID
+                var usedColor = colorHex
+
+                if let str = result as? String, !str.isEmpty {
+                    if let data = str.data(using: .utf8),
+                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                        highlightID = obj["id"] ?? newID
+                        textToReport = obj["text"] ?? ""
+                        usedColor = obj["color"] ?? colorHex
+                    } else {
+                        textToReport = str
                     }
+                }
+
+                if !textToReport.isEmpty {
+                    if let onWithMeta = self.parent.onHighlightCreatedWithMetadata {
+                        onWithMeta(highlightID, textToReport, usedColor)
+                    } else {
+                        self.parent.onHighlightCreated?(textToReport)
+                    }
+                    self.takePageSnapshot(for: self.currentPageIndex)
                 }
             }
         }
@@ -1168,6 +1199,9 @@ extension EBookPageCurlReader {
             let margin = prefs.textMargin
             let paraSpace = prefs.paragraphSpacing
             let paraIndent = prefs.paragraphIndent
+            let isDarkTheme = prefs.activeTheme.isDark
+            let defaultBlendMode = isDarkTheme ? "normal" : "multiply"
+            let defaultHighlightBg = isDarkTheme ? "rgba(255, 214, 10, 0.38)" : "rgba(255, 214, 10, 0.45)"
             let hyphenCSS = prefs.hyphenation ? "auto" : "manual"
 
             let renderWidth = size.width > 0 ? size.width : UIScreen.main.bounds.width
@@ -1229,7 +1263,7 @@ extension EBookPageCurlReader {
                 color: inherit !important;
             }
             mark.inksync-highlight, .inksync-highlight {
-                background-color: rgba(255, 214, 10, 0.45);
+                background-color: \(defaultHighlightBg);
                 color: inherit !important;
                 border-radius: 3px !important;
                 padding: 1px 2px !important;
@@ -1237,7 +1271,7 @@ extension EBookPageCurlReader {
                 box-decoration-break: clone !important;
                 -webkit-box-decoration-break: clone !important;
                 cursor: pointer !important;
-                mix-blend-mode: multiply;
+                mix-blend-mode: \(defaultBlendMode);
                 transition: opacity 0.15s ease, filter 0.15s ease !important;
             }
             mark.inksync-highlight:active {
@@ -1366,11 +1400,13 @@ extension EBookPageCurlReader {
             let isPad = UIDevice.current.userInterfaceIdiom == .pad
             let cols = parent.prefs.columnCount == 0 ? (isLandscape ? (parent.prefs.autoLandscapeDualPage ? 2 : (isPad ? 2 : 1)) : 1) : parent.prefs.columnCount
             let isMultiCol = cols > 1
+            let isDarkTheme = parent.prefs.activeTheme.isDark
 
             return """
             var _targetPage = \(initialPage >= 99999 ? 99999 : max(0, initialPage));
             var _totalPages = 1;
             var _isMultiCol = \(isMultiCol ? "true" : "false");
+            var _isDarkTheme = \(isDarkTheme ? "true" : "false");
 
             function getPageStep() {
                 var w = window.innerWidth;
@@ -1524,6 +1560,22 @@ extension EBookPageCurlReader {
                 }
             }, true);
 
+            function hexToRgba(hex, alpha) {
+                if (!hex) return 'rgba(255, 214, 10, ' + alpha + ')';
+                if (hex.indexOf('rgba') === 0 || hex.indexOf('hsla') === 0) return hex;
+                var c = hex.replace('#', '');
+                if (c.length === 3) {
+                    c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+                }
+                if (c.length >= 6) {
+                    var r = parseInt(c.substring(0, 2), 16) || 0;
+                    var g = parseInt(c.substring(2, 4), 16) || 0;
+                    var b = parseInt(c.substring(4, 6), 16) || 0;
+                    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+                }
+                return hex;
+            }
+
             window.applyInksyncHighlight = function(id, colorHex, symbol, style) {
                 if (typeof id === 'string' && id.indexOf('#') === 0) {
                     style = symbol;
@@ -1546,6 +1598,8 @@ extension EBookPageCurlReader {
                 mark.className = 'inksync-highlight';
                 if (id) mark.setAttribute('data-id', id);
                 if (style) mark.setAttribute('data-style', style);
+                var bgAlpha = _isDarkTheme ? 0.38 : 0.42;
+                var highlightBg = hexToRgba(colorHex || '#FFD600', bgAlpha);
                 if (style === 'underline') {
                     mark.style.setProperty('background-color', 'transparent', 'important');
                     mark.style.setProperty('text-decoration', 'underline', 'important');
@@ -1556,8 +1610,8 @@ extension EBookPageCurlReader {
                     mark.style.setProperty('text-decoration', 'line-through', 'important');
                     mark.style.setProperty('text-decoration-color', colorHex || '#FF4081', 'important');
                 } else {
-                    mark.style.setProperty('background-color', colorHex || '#FFD600', 'important');
-                    mark.style.mixBlendMode = 'multiply';
+                    mark.style.setProperty('background-color', highlightBg, 'important');
+                    mark.style.mixBlendMode = _isDarkTheme ? 'normal' : 'multiply';
                 }
                 mark.style.color = 'inherit';
                 mark.style.borderRadius = '3px';
@@ -1590,8 +1644,8 @@ extension EBookPageCurlReader {
                                     subMark.style.setProperty('text-decoration', 'line-through', 'important');
                                     subMark.style.setProperty('text-decoration-color', colorHex || '#FF4081', 'important');
                                 } else {
-                                    subMark.style.setProperty('background-color', colorHex || '#FFD600', 'important');
-                                    subMark.style.mixBlendMode = 'multiply';
+                                    subMark.style.setProperty('background-color', highlightBg, 'important');
+                                    subMark.style.mixBlendMode = _isDarkTheme ? 'normal' : 'multiply';
                                 }
                                 if (symbol) subMark.setAttribute('data-symbol', symbol);
                                 var startOffset = (textNode === range.startContainer) ? range.startOffset : 0;
@@ -1625,8 +1679,17 @@ extension EBookPageCurlReader {
                         }
                     }
                 }
+                var bgAlpha = _isDarkTheme ? 0.38 : 0.42;
+                var highlightBg = hexToRgba(newColorHex || '#FFD600', bgAlpha);
                 for (var j = 0; j < targetMarks.length; j++) {
-                    targetMarks[j].style.backgroundColor = newColorHex;
+                    var m = targetMarks[j];
+                    var st = m.getAttribute('data-style');
+                    if (st === 'underline' || st === 'strikeout') {
+                        m.style.setProperty('text-decoration-color', newColorHex || '#FF9100', 'important');
+                    } else {
+                        m.style.setProperty('background-color', highlightBg, 'important');
+                        m.style.mixBlendMode = _isDarkTheme ? 'normal' : 'multiply';
+                    }
                 }
             };
 
@@ -1682,6 +1745,8 @@ extension EBookPageCurlReader {
                             mark.className = 'inksync-highlight';
                             if (id) mark.setAttribute('data-id', id);
                             if (style) mark.setAttribute('data-style', style);
+                            var bgAlpha = _isDarkTheme ? 0.38 : 0.42;
+                            var highlightBg = hexToRgba(colorHex || '#FFD600', bgAlpha);
                             if (style === 'underline') {
                                 mark.style.setProperty('background-color', 'transparent', 'important');
                                 mark.style.setProperty('text-decoration', 'underline', 'important');
@@ -1692,8 +1757,8 @@ extension EBookPageCurlReader {
                                 mark.style.setProperty('text-decoration', 'line-through', 'important');
                                 mark.style.setProperty('text-decoration-color', colorHex || '#FF4081', 'important');
                             } else {
-                                mark.style.setProperty('background-color', colorHex || '#FFD600', 'important');
-                                mark.style.mixBlendMode = 'multiply';
+                                mark.style.setProperty('background-color', highlightBg, 'important');
+                                mark.style.mixBlendMode = _isDarkTheme ? 'normal' : 'multiply';
                             }
                             mark.style.color = 'inherit';
                             mark.style.borderRadius = '3px';

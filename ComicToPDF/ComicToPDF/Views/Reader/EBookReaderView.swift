@@ -143,6 +143,10 @@ struct EBookReaderView: View {
                                         let defaultColor = EBookPreferences.shared.defaultHighlightColor.rawValue
                                         applyHighlight(text: selectedText, colorHex: defaultColor, symbol: nil)
                                     },
+                                    onHighlightCreatedWithMetadata: { idStr, selectedText, colorHex in
+                                        let hId = UUID(uuidString: idStr) ?? UUID()
+                                        saveHighlightFromDirectDOM(id: hId, text: selectedText, colorHex: colorHex)
+                                    },
                                     onHighlightTapped: { tappedText in
                                         guard let p = pdf ?? conversionManager.convertedPDFs.first(where: { $0.url.lastPathComponent == fileURL.lastPathComponent }) else { return }
                                         let storeAnns = AnnotationStore.shared.annotations(for: p.id)
@@ -199,7 +203,7 @@ struct EBookReaderView: View {
                                             kind: .highlight,
                                             createdAt: Date(),
                                             modifiedAt: Date(),
-                                            colorHex: "#ffd700",
+                                            colorHex: prefs.defaultHighlightColor.rawValue,
                                             selectedText: selectedText
                                         )
                                         AnnotationStore.shared.add(highlight)
@@ -349,11 +353,12 @@ struct EBookReaderView: View {
                 annotation: annotation,
                 onDelete: {
                     let idStr = annotation.id.uuidString
+                    let activeWV = resolveActiveWebView() ?? webViewReference
                     if let text = annotation.selectedText {
                         let safeText = text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: " ")
-                        webViewReference?.evaluateJavaScript("if (window.removeInksyncHighlight) { window.removeInksyncHighlight('\(idStr)'); window.removeInksyncHighlight(`\(safeText)`); }")
+                        activeWV?.evaluateJavaScript("if (window.removeInksyncHighlight) { window.removeInksyncHighlight('\(idStr)'); window.removeInksyncHighlight(`\(safeText)`); }")
                     } else {
-                        webViewReference?.evaluateJavaScript("if (window.removeInksyncHighlight) { window.removeInksyncHighlight('\(idStr)'); }")
+                        activeWV?.evaluateJavaScript("if (window.removeInksyncHighlight) { window.removeInksyncHighlight('\(idStr)'); }")
                     }
                     let pid = annotation.pdfID
                     AnnotationStore.shared.delete(id: annotation.id, pdfID: pid)
@@ -368,11 +373,12 @@ struct EBookReaderView: View {
                 },
                 onColorSelected: { colorHex in
                     let idStr = annotation.id.uuidString
+                    let activeWV = resolveActiveWebView() ?? webViewReference
                     if let text = annotation.selectedText {
                         let safeText = text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: " ")
-                        webViewReference?.evaluateJavaScript("if (window.updateInksyncHighlightColor) { window.updateInksyncHighlightColor('\(idStr)', '\(colorHex)'); window.updateInksyncHighlightColor(`\(safeText)`, '\(colorHex)'); }")
+                        activeWV?.evaluateJavaScript("if (window.updateInksyncHighlightColor) { window.updateInksyncHighlightColor('\(idStr)', '\(colorHex)'); window.updateInksyncHighlightColor(`\(safeText)`, '\(colorHex)'); }")
                     } else {
-                        webViewReference?.evaluateJavaScript("if (window.updateInksyncHighlightColor) { window.updateInksyncHighlightColor('\(idStr)', '\(colorHex)'); }")
+                        activeWV?.evaluateJavaScript("if (window.updateInksyncHighlightColor) { window.updateInksyncHighlightColor('\(idStr)', '\(colorHex)'); }")
                     }
                     let pid = annotation.pdfID
                     let matching = AnnotationStore.shared.annotations(for: pid)
@@ -404,7 +410,7 @@ struct EBookReaderView: View {
                     onNavigate: { chapterIdx, matchText in
                         if chapterIdx == currentIndex {
                             // Same chapter: inject window.find() immediately
-                            if let wv = webViewReference {
+                            if let wv = resolveActiveWebView() ?? webViewReference {
                                 let safe = matchText
                                     .replacingOccurrences(of: "\\", with: "\\\\")
                                     .replacingOccurrences(of: "'", with: "\\'")
@@ -471,7 +477,7 @@ struct EBookReaderView: View {
                         Task {
                             try? await Task.sleep(nanoseconds: 500_000_000)
                             await MainActor.run {
-                                if let wv = webViewReference {
+                                if let wv = resolveActiveWebView() ?? webViewReference {
                                     let js = "document.getElementById('\(fragment)')?.scrollIntoView({ behavior: 'smooth', block: 'start' });"
                                     wv.evaluateJavaScript(js)
                                 }
@@ -487,7 +493,7 @@ struct EBookReaderView: View {
             Task {
                 try? await Task.sleep(nanoseconds: 600_000_000) // 0.6s
                 await MainActor.run {
-                    if let wv = webViewReference {
+                    if let wv = resolveActiveWebView() ?? webViewReference {
                         let safe = match
                             .replacingOccurrences(of: "\\", with: "\\\\")
                             .replacingOccurrences(of: "'", with: "\\'")
@@ -1150,6 +1156,52 @@ struct EBookReaderView: View {
         }
     }
 
+    private func resolveActiveWebView() -> WKWebView? {
+        if let wv = webViewReference {
+            return wv
+        }
+        if let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }),
+           let window = windowScene.windows.first(where: { $0.isKeyWindow }) {
+            return findWKWebView(in: window)
+        }
+        return nil
+    }
+
+    private func findWKWebView(in view: UIView) -> WKWebView? {
+        if let wv = view as? WKWebView { return wv }
+        for sub in view.subviews {
+            if let found = findWKWebView(in: sub) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private func saveHighlightFromDirectDOM(id: UUID, text: String, colorHex: String) {
+        guard let p = pdf ?? conversionManager.convertedPDFs.first(where: { $0.url.lastPathComponent == fileURL.lastPathComponent }) else { return }
+        let rawLabel = metadata?.spineItems[safe: currentIndex]?.label ?? ""
+        let spineLabel = !rawLabel.isEmpty ? rawLabel : nil
+
+        let highlight = Annotation(
+            id: id,
+            pdfID: p.id,
+            pageIndex: currentIndex,
+            chapterTitle: spineLabel,
+            kind: .highlight,
+            createdAt: Date(),
+            modifiedAt: Date(),
+            colorHex: colorHex,
+            selectedText: text
+        )
+        AnnotationStore.shared.add(highlight)
+        let sdAnnotation = SDAnnotation(from: highlight)
+        modelContext.insert(sdAnnotation)
+        try? modelContext.save()
+        HapticEngine.selection()
+    }
+
     private func applyHighlight(text: String, colorHex: String, note: String? = nil, symbol: String? = nil, style: AnnotationMarkupStyle = .highlight) {
         guard let p = pdf ?? conversionManager.convertedPDFs.first(where: { $0.url.lastPathComponent == fileURL.lastPathComponent }) else { return }
         let rawLabel = metadata?.spineItems[safe: currentIndex]?.label ?? ""
@@ -1198,7 +1250,8 @@ struct EBookReaderView: View {
         let idStr = highlight.id.uuidString
         let safeSymbol = symbol?.replacingOccurrences(of: "'", with: "\\'") ?? ""
         let js = "if (window.applyInksyncHighlight) { window.applyInksyncHighlight('\(idStr)', '\(colorHex)', '\(safeSymbol)', '\(style.rawValue)'); }"
-        webViewReference?.evaluateJavaScript(js)
+        let targetWV = resolveActiveWebView() ?? webViewReference
+        targetWV?.evaluateJavaScript(js)
         HapticEngine.selection()
     }
 
@@ -1231,7 +1284,7 @@ struct EBookReaderView: View {
 
     private func startNarration() {
         HapticEngine.selection()
-        if let wv = webViewReference {
+        if let wv = resolveActiveWebView() ?? webViewReference {
             wv.evaluateJavaScript("document.body.innerText") { (result, error) in
                 if let text = result as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     narrationEngine.startReading(
@@ -1660,6 +1713,9 @@ struct EBookWebReader: View {
         let paraSpace     = prefs.paragraphSpacing
         let paraIndent    = prefs.paragraphIndent
         let hyphenCSS     = prefs.hyphenation ? "auto" : "manual"
+        let isDarkTheme   = prefs.activeTheme.isDark
+        let blendMode     = isDarkTheme ? "normal" : "multiply"
+        let highlightBg   = isDarkTheme ? "rgba(255, 214, 10, 0.38)" : "rgba(255, 214, 10, 0.45)"
 
         let renderWidth = size.width > 0 ? size.width : UIScreen.main.bounds.width
         let renderHeight = size.height > 0 ? size.height : UIScreen.main.bounds.height
@@ -1935,7 +1991,7 @@ struct EBookWebReader: View {
         }
         a { color: \(linkColor) !important; }
         blockquote { border-left: 3px solid \(linkColor); margin-left: 0; padding-left: 16px; opacity: 0.85; }
-        mark.inksync-highlight { display: inline; border-radius: 2px; mix-blend-mode: multiply; -webkit-mix-blend-mode: multiply; padding: 0 1px; color: inherit; }
+        mark.inksync-highlight { display: inline; border-radius: 2px; background-color: \(highlightBg); mix-blend-mode: \(blendMode); -webkit-mix-blend-mode: \(blendMode); padding: 0 1px; color: inherit; }
         \(fontSize > 28 ? """
         .dropcap, .drop-cap, span.first-letter {
             float: none !important;
@@ -1963,6 +2019,7 @@ struct EBookWebReader: View {
     private func buildReaderCSS(prefs: EBookPreferences, colorScheme: ColorScheme, initialPage: Int, size: CGSize) -> String {
         let cssContent = computeCSS(prefs: prefs, size: size)
         let isPaged = prefs.paginationMode == EBookPaginationMode.paged.rawValue
+        let isDarkTheme = (prefs.theme == EBookTheme.dark.rawValue || prefs.theme == EBookTheme.oled.rawValue)
         
         return """
         <meta charset="utf-8">
@@ -1971,6 +2028,24 @@ struct EBookWebReader: View {
         \(cssContent)
         </style>
         <script>
+        var _isDarkTheme = \(isDarkTheme ? "true" : "false");
+
+        function hexToRgba(hex, alpha) {
+            if (!hex) return 'rgba(255, 214, 10, ' + alpha + ')';
+            if (hex.indexOf('rgba') === 0 || hex.indexOf('hsla') === 0) return hex;
+            var c = hex.replace('#', '');
+            if (c.length === 3) {
+                c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+            }
+            if (c.length >= 6) {
+                var r = parseInt(c.substring(0, 2), 16) || 0;
+                var g = parseInt(c.substring(2, 4), 16) || 0;
+                var b = parseInt(c.substring(4, 6), 16) || 0;
+                return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+            }
+            return hex;
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             document.querySelectorAll('[style]').forEach(function(el) {
                 if (el.tagName !== 'MARK' && !el.classList.contains('inksync-highlight')) {
@@ -2103,6 +2178,8 @@ struct EBookWebReader: View {
             _scrollTimeout = setTimeout(function() {
                 updateMetrics();
             }, 50);
+        });
+
         document.addEventListener('selectionchange', function() {
             var sel = window.getSelection();
             if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
@@ -2128,13 +2205,15 @@ struct EBookWebReader: View {
             } else if (window.__lastSelectedRange) {
                 range = window.__lastSelectedRange;
             }
-            if (!range) return;
+            if (!range) return "";
             var text = (sel && !sel.isCollapsed) ? sel.toString().trim() : (window.__lastSelectedText || (range.toString ? range.toString().trim() : ''));
-            if (!text) return;
+            if (!text) return "";
             var mark = document.createElement('mark');
             mark.className = 'inksync-highlight';
             if (id) mark.setAttribute('data-id', id);
             if (style) mark.setAttribute('data-style', style);
+            var bgAlpha = _isDarkTheme ? 0.38 : 0.42;
+            var highlightBg = hexToRgba(colorHex || '#FFD600', bgAlpha);
             if (style === 'underline') {
                 mark.style.setProperty('background-color', 'transparent', 'important');
                 mark.style.setProperty('text-decoration', 'underline', 'important');
@@ -2145,8 +2224,8 @@ struct EBookWebReader: View {
                 mark.style.setProperty('text-decoration', 'line-through', 'important');
                 mark.style.setProperty('text-decoration-color', colorHex || '#FF4081', 'important');
             } else {
-                mark.style.setProperty('background-color', colorHex || '#FFD600', 'important');
-                mark.style.mixBlendMode = 'multiply';
+                mark.style.setProperty('background-color', highlightBg, 'important');
+                mark.style.mixBlendMode = _isDarkTheme ? 'normal' : 'multiply';
             }
             mark.style.color = 'inherit';
             mark.style.borderRadius = '3px';
@@ -2180,8 +2259,8 @@ struct EBookWebReader: View {
                                 subMark.style.setProperty('text-decoration', 'line-through', 'important');
                                 subMark.style.setProperty('text-decoration-color', colorHex || '#FF4081', 'important');
                             } else {
-                                subMark.style.setProperty('background-color', colorHex || '#FFD600', 'important');
-                                subMark.style.mixBlendMode = 'multiply';
+                                subMark.style.setProperty('background-color', highlightBg, 'important');
+                                subMark.style.mixBlendMode = _isDarkTheme ? 'normal' : 'multiply';
                             }
                             if (symbol) subMark.setAttribute('data-symbol', symbol);
                             var startOffset = (textNode === range.startContainer) ? range.startOffset : 0;
@@ -2194,16 +2273,19 @@ struct EBookWebReader: View {
                     }
                 }
             }
-            try { sel.removeAllRanges(); } catch(e) {}
+            if (sel) { try { sel.removeAllRanges(); } catch(e) {} }
             window.__lastSelectedRange = null;
             window.__lastSelectedText = null;
-            window.webkit.messageHandlers.highlight.postMessage(text);
+            try { window.webkit.messageHandlers.highlight.postMessage(text); } catch(e) {}
+            return text;
         };
 
         window.restoreInksyncHighlight = function(id, textToFind, colorHex, symbol, style) {
             if (!textToFind) return;
             var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
             var node;
+            var bgAlpha = _isDarkTheme ? 0.38 : 0.42;
+            var highlightBg = hexToRgba(colorHex || '#FFD600', bgAlpha);
             while ((node = walker.nextNode())) {
                 if (node.parentElement && node.parentElement.closest && node.parentElement.closest('mark.inksync-highlight')) continue;
                 var idx = node.nodeValue.indexOf(textToFind);
@@ -2226,8 +2308,8 @@ struct EBookWebReader: View {
                             mark.style.setProperty('text-decoration', 'line-through', 'important');
                             mark.style.setProperty('text-decoration-color', colorHex || '#FF4081', 'important');
                         } else {
-                            mark.style.setProperty('background-color', colorHex || '#FFD600', 'important');
-                            mark.style.mixBlendMode = 'multiply';
+                            mark.style.setProperty('background-color', highlightBg, 'important');
+                            mark.style.mixBlendMode = _isDarkTheme ? 'normal' : 'multiply';
                         }
                         mark.style.color = 'inherit';
                         mark.style.borderRadius = '3px';
@@ -2240,12 +2322,30 @@ struct EBookWebReader: View {
             }
         };
 
-        window.updateInksyncHighlightColor = function(idOrText, colorHex) {
-            var marks = document.querySelectorAll('mark.inksync-highlight');
-            for (var i = 0; i < marks.length; i++) {
-                if (marks[i].getAttribute('data-id') === idOrText || marks[i].textContent.trim() === idOrText.trim()) {
-                    marks[i].style.setProperty('background-color', colorHex, 'important');
-                    break;
+        window.updateInksyncHighlightColor = function(idOrText, newColorHex) {
+            if (!idOrText) return;
+            var targetMarks = [];
+            var idMark = document.querySelector('mark.inksync-highlight[data-id="' + idOrText + '"]');
+            if (idMark) {
+                targetMarks.push(idMark);
+            } else {
+                var marks = document.querySelectorAll('mark.inksync-highlight');
+                for (var i = 0; i < marks.length; i++) {
+                    if (marks[i].getAttribute('data-id') === idOrText || marks[i].textContent.trim() === idOrText.trim() || marks[i].textContent.indexOf(idOrText) !== -1 || idOrText.indexOf(marks[i].textContent) !== -1) {
+                        targetMarks.push(marks[i]);
+                    }
+                }
+            }
+            var bgAlpha = _isDarkTheme ? 0.38 : 0.42;
+            var highlightBg = hexToRgba(newColorHex || '#FFD600', bgAlpha);
+            for (var j = 0; j < targetMarks.length; j++) {
+                var m = targetMarks[j];
+                var st = m.getAttribute('data-style');
+                if (st === 'underline' || st === 'strikeout') {
+                    m.style.setProperty('text-decoration-color', newColorHex || '#FF9100', 'important');
+                } else {
+                    m.style.setProperty('background-color', highlightBg, 'important');
+                    m.style.mixBlendMode = _isDarkTheme ? 'normal' : 'multiply';
                 }
             }
         };
