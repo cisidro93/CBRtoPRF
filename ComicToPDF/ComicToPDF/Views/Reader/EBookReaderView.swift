@@ -2019,7 +2019,7 @@ struct EBookWebReader: View {
     private func buildReaderCSS(prefs: EBookPreferences, colorScheme: ColorScheme, initialPage: Int, size: CGSize) -> String {
         let cssContent = computeCSS(prefs: prefs, size: size)
         let isPaged = prefs.paginationMode == EBookPaginationMode.paged.rawValue
-        let isDarkTheme = (prefs.theme == EBookTheme.dark.rawValue || prefs.theme == EBookTheme.oled.rawValue)
+        let isDarkTheme = prefs.activeTheme.isDark
         
         return """
         <meta charset="utf-8">
