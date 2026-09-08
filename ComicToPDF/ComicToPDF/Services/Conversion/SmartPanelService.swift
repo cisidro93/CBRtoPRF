@@ -143,7 +143,9 @@ final class SmartPanelService: Sendable {
                                 Logger.shared.log("Repaired Page \(pageIndex) using size \(size)", category: "SmartPanels")
                             }
                         }
-                    } catch {}
+                    } catch {
+                        Logger.shared.log("SmartPanels: Failed to extract page \(pageIndex) entry for panel repair: \(error.localizedDescription)", category: "SmartPanels", type: .warning)
+                    }
                 }
             }
         }

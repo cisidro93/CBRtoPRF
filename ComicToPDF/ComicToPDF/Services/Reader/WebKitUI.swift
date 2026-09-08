@@ -113,12 +113,13 @@ public struct WebView: UIViewRepresentable {
                 let tempName = "__inksync_\(abs(html.hashValue)).injected.html"
                 let fileURL = baseURL.appendingPathComponent(tempName)
                 do {
+                    // Clean up previously active temp file before creating the new one
+                    if let previousURL = context.coordinator.activeTempFileURL, previousURL != fileURL {
+                        try? FileManager.default.removeItem(at: previousURL)
+                    }
                     try html.write(to: fileURL, atomically: true, encoding: .utf8)
+                    context.coordinator.activeTempFileURL = fileURL
                     uiView.loadFileURL(fileURL, allowingReadAccessTo: baseURL.deletingLastPathComponent())
-                    // Delete temp file immediately — WKWebView copies the content synchronously
-                    // before loadFileURL returns. Without this cleanup, every typography
-                    // or theme change writes a new orphaned file into the EPUB unzip directory.
-                    try? FileManager.default.removeItem(at: fileURL)
                 } catch {
                     uiView.loadHTMLString(html, baseURL: baseURL)
                 }
@@ -129,6 +130,10 @@ public struct WebView: UIViewRepresentable {
     }
     
     public static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        if let tempURL = coordinator.activeTempFileURL {
+            try? FileManager.default.removeItem(at: tempURL)
+            coordinator.activeTempFileURL = nil
+        }
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "nav")
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "metrics")
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "highlight")
@@ -147,9 +152,16 @@ public struct WebView: UIViewRepresentable {
     public class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler, UIScrollViewDelegate {
         var parent: WebView
         var lastContentHash: Int = 0
+        var activeTempFileURL: URL? = nil
         
         init(_ parent: WebView) {
             self.parent = parent
+        }
+
+        deinit {
+            if let tempURL = activeTempFileURL {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
         }
         
         public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {

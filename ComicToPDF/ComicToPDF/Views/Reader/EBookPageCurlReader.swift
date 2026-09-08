@@ -222,24 +222,41 @@ extension EBookPageCurlReader {
         private(set) var primaryWebView: WKWebView?
         // Pre-rendered column snapshots — used for instant, zero-lag 3D page curling
         private var pageSnapshots: [Int: UIImage] = [:]
+        // Tokens for block-based NotificationCenter observers to prevent memory leaks
+        private var observerTokens: [NSObjectProtocol] = []
 
         init(_ parent: EBookPageCurlReader) {
             self.parent = parent
             super.init()
             setupPrimaryWebView()
             
-            NotificationCenter.default.addObserver(forName: NSNotification.Name("EBookTurnPageForward"), object: nil, queue: .main) { [weak self] _ in
+            let forwardToken = NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("EBookTurnPageForward"),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self = self, let pvc = self.pageViewController else { return }
                     self.turnForward(pvc)
                 }
             }
-            NotificationCenter.default.addObserver(forName: NSNotification.Name("EBookTurnPageBackward"), object: nil, queue: .main) { [weak self] _ in
+            observerTokens.append(forwardToken)
+
+            let backwardToken = NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("EBookTurnPageBackward"),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self = self, let pvc = self.pageViewController else { return }
                     self.turnBackward(pvc)
                 }
             }
+            observerTokens.append(backwardToken)
+        }
+
+        deinit {
+            cleanup()
         }
 
         var isUserSelectingText: Bool = false
@@ -287,8 +304,12 @@ extension EBookPageCurlReader {
         }
 
         func cleanup() {
-            NotificationCenter.default.removeObserver(self, name: NSNotification.Name("EBookTurnPageForward"), object: nil)
-            NotificationCenter.default.removeObserver(self, name: NSNotification.Name("EBookTurnPageBackward"), object: nil)
+            for token in observerTokens {
+                NotificationCenter.default.removeObserver(token)
+            }
+            observerTokens.removeAll()
+            NotificationCenter.default.removeObserver(self)
+
             guard let wv = primaryWebView else { return }
             wv.configuration.userContentController.removeScriptMessageHandler(forName: "metrics")
             wv.configuration.userContentController.removeScriptMessageHandler(forName: "highlight")

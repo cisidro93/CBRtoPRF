@@ -71,8 +71,16 @@ extension ConversionManager {
                 
                 for fileURL in generatedFiles {
                     do {
-                        let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
-                        let size = attrs[.size] as? Int64 ?? 0
+                        let size: Int64
+                        if let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+                           let fileSize = attrs[.size] as? Int64 {
+                            size = fileSize
+                        } else if let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
+                                  let resSize = resourceValues.fileSize {
+                            size = Int64(resSize)
+                        } else {
+                            size = 0
+                        }
                         
                         let firstPDF = pdfPairs.first
                         var baseMetadata = firstPDF?.metadata ?? PDFMetadata(title: fileURL.deletingPathExtension().lastPathComponent)
@@ -102,7 +110,9 @@ extension ConversionManager {
                         newPDF.lastOutputFormat = settings.outputFormat
                         newPDF.coverImageData = startCover
                         self.convertedPDFs.append(newPDF)
-                    } catch {}
+                    } catch {
+                        Logger.shared.log("Omnibus: Failed to register generated volume at '\(fileURL.lastPathComponent)': \(error.localizedDescription)", category: "Conversion", type: .error)
+                    }
                 }
                 self.saveLibrary()
                 self.activeTasks.removeAll(where: { $0.id == taskId })

@@ -67,7 +67,9 @@ public final class PDFImageExtractor: Sendable {
             do {
                 try pngData.write(to: imageURL)
                 result.append(ExtractedPDFImage(pageIndex: pageIndex, imagePath: imageURL.path, rect: pageBounds))
-            } catch {}
+            } catch {
+                Logger.shared.log("PDFImageExtractor: Failed to write extracted image to '\(imageURL.lastPathComponent)': \(error.localizedDescription)", category: "Reflow", type: .warning)
+            }
         }
 
         return result

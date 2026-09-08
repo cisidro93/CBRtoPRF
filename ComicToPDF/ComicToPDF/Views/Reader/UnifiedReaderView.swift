@@ -94,46 +94,62 @@ struct UnifiedReaderView: View {
         return ext == "epub" && pdf.metadata.hasFormatOverride != true && epubComicCheckResult == nil
     }
     
+    enum ActiveReaderEngine: Equatable {
+        case comic
+        case proPDF
+        case eBook
+        case checkingEPUB
+        
+        var displayName: String {
+            switch self {
+            case .comic: return "ComicReaderEngine"
+            case .proPDF: return "ProPDFReaderEngine"
+            case .eBook: return "EBookReaderView"
+            case .checkingEPUB: return "Pending (ProgressView)"
+            }
+        }
+    }
+
     // MARK: - Reader Engine Diagnostics & Routing Resolution
     
-    private var resolvedEngineInfo: (engineName: String, rationale: String) {
+    private var resolvedReaderEngine: (engine: ActiveReaderEngine, rationale: String) {
         if isPDFDocument {
             if activeEngineOverride == .comic {
-                return ("ComicReaderEngine", "Manual engine override active: comic mode requested for PDF.")
+                return (.comic, "Manual engine override active: comic mode requested for PDF.")
             } else {
-                return ("ProPDFReaderEngine", "Native vector PDF document detected (%PDF binary signature or .pdf extension). Full text reflow, highlighting, and Apple Pencil active.")
+                return (.proPDF, "Native vector PDF document detected (%PDF binary signature or .pdf extension). Full text reflow, highlighting, and Apple Pencil active.")
             }
         } else if needsEPUBComicCheck {
-            return ("Pending (ProgressView)", "EPUB comic/text check in flight.")
+            return (.checkingEPUB, "EPUB comic/text check in flight.")
         } else if let isComic = epubComicCheckResult {
             if isComic && activeEngineOverride != .book {
-                return ("ComicReaderEngine", "Fixed-layout/comic EPUB detected from container analysis or high image density.")
+                return (.comic, "Fixed-layout/comic EPUB detected from container analysis or high image density.")
             } else {
-                return ("EBookReaderView", "Reflowable text EPUB detected. WebKit dual-page median layout and typography active.")
+                return (.eBook, "Reflowable text EPUB detected. WebKit dual-page median layout and typography active.")
             }
         } else if pdf.url.pathExtension.lowercased() == "epub" || pdf.name.lowercased().hasSuffix(".epub") {
             if activeEngineOverride == .comic {
-                return ("ComicReaderEngine", "Manual engine override active: comic mode requested for EPUB.")
+                return (.comic, "Manual engine override active: comic mode requested for EPUB.")
             } else {
-                return ("EBookReaderView", "Standard reflowable EPUB document.")
+                return (.eBook, "Standard reflowable EPUB document.")
             }
         } else if pdf.contentType == .book {
             if activeEngineOverride == .comic {
-                return ("ComicReaderEngine", "Manual engine override active: comic mode requested for book.")
+                return (.comic, "Manual engine override active: comic mode requested for book.")
             } else {
-                return ("ProPDFReaderEngine", "Identified as .book content type. Native PDF engine active.")
+                return (.proPDF, "Identified as .book content type. Native PDF engine active.")
             }
         } else {
             if activeEngineOverride == .book {
-                return ("ProPDFReaderEngine", "Manual engine override active: book mode requested for archive.")
+                return (.proPDF, "Manual engine override active: book mode requested for archive.")
             } else {
-                return ("ComicReaderEngine", "Comic archive format (CBZ/CBR/CB7/ZIP/RAR). Continuous vertical/spread canvas active.")
+                return (.comic, "Comic archive format (CBZ/CBR/CB7/ZIP/RAR). Continuous vertical/spread canvas active.")
             }
         }
     }
     
     private func logReaderRouting(trigger: String) {
-        let (engineName, rationale) = resolvedEngineInfo
+        let (engine, rationale) = resolvedReaderEngine
         let ext = pdf.url.pathExtension.lowercased()
         let fileSizeStr = ByteCountFormatter.string(fromByteCount: pdf.fileSize, countStyle: .file)
         
@@ -159,11 +175,11 @@ struct UnifiedReaderView: View {
           • Evaluated ContentType: .\(pdf.contentType.rawValue) (hasFormatOverride: \(pdf.metadata.hasFormatOverride ?? false))
           • Binary IsPDF: \(isPDFDocument)
           • Active Engine Override: \(activeEngineOverride?.rawValue ?? "none")
-          • MOUNTED READER: \(engineName)
+          • MOUNTED READER: \(engine.displayName)
           • Decision Rationale: \(rationale)
         """
         
-        let isMismatch = (isPDFDocument && engineName == "ComicReaderEngine" && activeEngineOverride == nil)
+        let isMismatch = (isPDFDocument && engine == .comic && activeEngineOverride == nil)
         Logger.shared.log(report, category: "ReaderRouting", type: isMismatch ? .warning : .info)
     }
 
@@ -213,39 +229,16 @@ struct UnifiedReaderView: View {
                 ZStack {
                     prefs.activeTheme.background.edgesIgnoringSafeArea(.all)
                     
-                    if isPDFDocument {
-                        if activeEngineOverride == .comic {
-                            ComicReaderEngine(pdf: pdf, onDismiss: { dismiss() }, allBooks: allBooks)
-                        } else {
-                            ProPDFReaderEngine(pdf: pdf, onDismiss: { dismiss() }, allBooks: allBooks)
-                        }
-                    } else if needsEPUBComicCheck {
+                    switch resolvedReaderEngine.engine {
+                    case .comic:
+                        ComicReaderEngine(pdf: pdf, onDismiss: { dismiss() }, allBooks: allBooks)
+                    case .proPDF:
+                        ProPDFReaderEngine(pdf: pdf, onDismiss: { dismiss() }, allBooks: allBooks)
+                    case .eBook:
+                        EBookReaderView(fileURL: pdf.url, title: pdf.name, pdf: pdf, onExit: { dismiss() }, allBooks: allBooks)
+                    case .checkingEPUB:
                         ProgressView("Loading…")
                             .foregroundColor(.white)
-                    } else if let isComic = epubComicCheckResult {
-                        if isComic && activeEngineOverride != .book {
-                            ComicReaderEngine(pdf: pdf, onDismiss: { dismiss() }, allBooks: allBooks)
-                        } else {
-                            EBookReaderView(fileURL: pdf.url, title: pdf.name, pdf: pdf, onExit: { dismiss() }, allBooks: allBooks)
-                        }
-                    } else if pdf.url.pathExtension.lowercased() == "epub" || pdf.name.lowercased().hasSuffix(".epub") {
-                        if activeEngineOverride == .comic {
-                            ComicReaderEngine(pdf: pdf, onDismiss: { dismiss() }, allBooks: allBooks)
-                        } else {
-                            EBookReaderView(fileURL: pdf.url, title: pdf.name, pdf: pdf, onExit: { dismiss() }, allBooks: allBooks)
-                        }
-                    } else if pdf.contentType == .book {
-                        if activeEngineOverride == .comic {
-                            ComicReaderEngine(pdf: pdf, onDismiss: { dismiss() }, allBooks: allBooks)
-                        } else {
-                            ProPDFReaderEngine(pdf: pdf, onDismiss: { dismiss() }, allBooks: allBooks)
-                        }
-                    } else {
-                        if activeEngineOverride == .book {
-                            ProPDFReaderEngine(pdf: pdf, onDismiss: { dismiss() }, allBooks: allBooks)
-                        } else {
-                            ComicReaderEngine(pdf: pdf, onDismiss: { dismiss() }, allBooks: allBooks)
-                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -123,7 +123,9 @@ final class CoverFetchService: Sendable {
                     return nil
                 }
             }
-        } catch {}
+        } catch {
+            Logger.shared.log("Apple Books cover fetch error for '\(query)': \(error.localizedDescription)", category: "CoverFetch", type: .warning)
+        }
         return []
     }
     
@@ -150,7 +152,9 @@ final class CoverFetchService: Sendable {
                     return nil
                 }
             }
-        } catch {}
+        } catch {
+            Logger.shared.log("Google Books cover fetch error for '\(query)': \(error.localizedDescription)", category: "CoverFetch", type: .warning)
+        }
         return []
     }
     
@@ -172,7 +176,9 @@ final class CoverFetchService: Sendable {
                     return nil
                 }
             }
-        } catch {}
+        } catch {
+            Logger.shared.log("Open Library cover fetch error for '\(query)': \(error.localizedDescription)", category: "CoverFetch", type: .warning)
+        }
         return []
     }
     

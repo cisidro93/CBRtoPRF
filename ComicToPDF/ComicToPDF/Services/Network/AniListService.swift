@@ -259,7 +259,9 @@ actor AniListService {
                 // and if it's invalid we get a 400 or 401.
                 return httpResponse.statusCode == 200
             }
-        } catch {}
+        } catch {
+            Logger.shared.log("AniList token validation request error: \(error.localizedDescription)", category: "AniList", type: .warning)
+        }
         return false
     }
 }
