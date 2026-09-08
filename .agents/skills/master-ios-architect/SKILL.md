@@ -69,15 +69,33 @@ Synthesized from world-class software engineering educators:
 2. **Zettelkasten & Study Notebook:**
    - Maintain auto-linked knowledge nodes (`ZettelkastenAutoLinker`), Progressive Summarization HUDs, and Cornell 3-Zone study notes for deep reading comprehension.
 
+### Pillar 6: Software Design Lifecycle & Observability (Banerjee Protocol)
+
+1. **Structured 5-Phase Design Protocol Before Implementation:**
+   - **Phase 1: Problem Definition & Scope Boundaries**: Explicitly define what problem is being solved, what is strictly *in scope*, what is *out of scope*, and list core assumptions before writing code.
+   - **Phase 2: Use-Case & Permutation Mapping**: Enumerate interactions across valid, invalid, missing, and boundary states (e.g. empty files, corrupted archives, network drops, orientation shifts).
+   - **Phase 3: Behavioral Requirements Contract**: Define exact behavioral expectations, error handling policies, and API capabilities.
+   - **Phase 4: Modular Architecture & Telemetry**: Design loosely coupled components with deep interfaces (Ousterhout). Integrate telemetry (`os.Logger` subsystems) early as an architectural feedback loop.
+   - **Phase 5: Detailed Data Structures & Component Tests**: Model domain data using immutable value types (`Sendable` structs) and verify components with focused tests.
+2. **Hot-Path vs. Cold-Path Architecture (Muratori vs. Dijkstra/Ousterhout):**
+   - **Hot Rendering Paths (Muratori Caution)**: Avoid virtual dispatch, dynamic protocol casting, or heap thrashing inside 120Hz rendering loops, Metal shaders, or byte-level image processing. Keep hot loops direct and cache-friendly.
+   - **System & Service Boundaries (Dijkstra/Ousterhout Depth)**: Use expressive protocols and deep modules at architecture, state, and service boundaries to keep cognitive load minimal and eliminate comprehension debt.
+3. **Telemetry & Unified Logging First:**
+   - Instrument critical engines (e.g. `ComicParser`, `PDFCacheManager`, `ReaderProgressTracker`) with structured `os.Logger(subsystem:category:)`.
+   - Never use blind `print()` statements for diagnostic tracking in production services.
+
 ---
 
 ## 2. Developer Action Checklist
 
 Whenever authoring, refactoring, or reviewing code for InksyncPro:
 
-- [ ] Has the error or bug been justified by empirical log/crash evidence?
-- [ ] Is state managed through a single source of truth without duplicated properties?
-- [ ] Are view controller array bounds dynamically aligned to prevent UIKit exceptions?
-- [ ] Does the UI look spectacular with modern typography, glassmorphic containers, and Haptic feedback?
-- [ ] Are all notification observers cleaned up in `dismantleUIView` to prevent memory leaks?
-- [ ] Have all background tasks been offloaded from `@MainActor` to avoid frame drops?
+- [ ] **Design Lifecycle**: Has the problem, scope, use-case matrix, and failure modes been defined before coding?
+- [ ] **Empirical Diagnostics**: Has any bug or crash been verified against real logs, traces, or diagnostic telemetry?
+- [ ] **State Single Source of Truth**: Is state managed through an authoritative actor/manager without duplicated mirrors?
+- [ ] **Cognitive Load & Deep Modules**: Are complex systems behind simple semantic protocols to prevent comprehension debt?
+- [ ] **Hot vs Cold Separation**: Are high-frequency rendering/byte paths kept direct and performance-critical while services are modular?
+- [ ] **UI/UX Polish**: Does the UI deliver 120Hz ProMotion fluid responsiveness, glassmorphic styling, and Haptic feedback?
+- [ ] **Resource Safety**: Are notification observers dismantled and async tasks explicitly cancelled on view teardown?
+- [ ] **Telemetry**: Are key lifecycle and error events logged with structured `os.Logger`?
+

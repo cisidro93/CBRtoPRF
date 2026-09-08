@@ -65,6 +65,15 @@ flowchart TD
 2. **WebKit Message Handler Cleanup**:
    - Remove script message handlers (`removeScriptMessageHandler(forName:)`) on `WKUserContentController` during view teardown to prevent circular retain leaks.
 
+### D. Comprehension Debt & Code Churn Prevention (AI Economics Audit)
+
+1. **Zero Copy-Paste Proliferation**:
+   - Reject changes that duplicate logic, file parsing, or gesture handling into multiple components. Force extraction into shared, testable utilities.
+2. **Deep Semantic Protocols (Cognitive Compression)**:
+   - Verify that new subsystems expose clean protocols with minimal public surface area (deep modules) rather than sprawling concrete dependencies (shallow modules).
+3. **Comprehension Audit**:
+   - Verify that every AI-generated block is concise, self-documenting, and explainable at the semantic level. If code is cryptic or excessively verbose, refactor before certification.
+
 ---
 
 ## 2. Review Pass 2: Visual Engines & Rendering Pipelines
@@ -124,3 +133,14 @@ Always test features across 4 essential runtime conditions:
 2. **Zoomed In State (1.0x – 3.5x)**: Pan gestures and boundary constraints while zoomed.
 3. **Dynamic Device Rotation**: Switching Portrait ↔ Landscape across single and dual page spreads.
 4. **Low Memory Warnings**: Memory eviction of image caches without crashing the active reader session.
+
+### D. Use-Case Permutations & Fault Boundaries (Banerjee Protocol)
+
+1. **Input Permutation Matrix**:
+   - For every input (file URLs, bookmarks, user settings, page offsets), explicitly verify behavior under 3 states:
+     - (a) **Valid Input**: Normal execution and expected state update.
+     - (b) **Invalid / Malformed Input**: Handled gracefully with explicit typed errors (never crashing or leaving inconsistent UI).
+     - (c) **Missing / Nil Input**: Fallback defaults or graceful dismissal without dangling loaders.
+2. **Fault Isolation**:
+   - Ensure an error in a secondary component (e.g., thumbnail generation, dominant color extraction) never halts primary reading or document viewing.
+

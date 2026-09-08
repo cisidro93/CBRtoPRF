@@ -31,6 +31,18 @@ Whenever conducting code reviews, bug fixes, feature additions, or architectural
 - Provide immediate visual feedback for all reader modes (Smart Crop, Pencil Ink, Dual Page).
 - Support deep study workflows: Cornell 3-Zone note paper, Zettelkasten auto-linked nodes (`ZettelkastenAutoLinker`), and Executive Summary HUD layers.
 
+### 6. Software Design Lifecycle & Observability (Banerjee Protocol)
+
+- **5-Phase Pre-Implementation Discipline**: Before coding, systematically define:
+  1. *Problem Statement & Scope Boundaries* (in-scope, out-of-scope, core assumptions).
+  2. *Use-Case & Permutation Matrix* (valid, invalid/malformed, missing inputs).
+  3. *Behavioral Requirements Contract* (explicit system behaviors & invariants).
+  4. *Modular Architecture & Telemetry* (loose coupling, deep modules, `os.Logger` subsystems).
+  5. *Detailed Specs & Component Tests* (immutable `Sendable` value types, test-driven validation).
+- **Hot-Path vs. Cold-Path Separation (Muratori vs. Dijkstra/Ousterhout)**:
+  - Keep 120Hz hot rendering paths (Metal shaders, byte-level bitmap manipulation) direct and non-dispatching.
+  - Keep service, state, and business boundaries cleanly protocol-abstracted to maximize cognitive compression.
+
 ---
 
 ## Three-Developer Review & Defense Protocol
@@ -63,6 +75,8 @@ Whenever conducting code reviews, bug fixes, or feature additions:
 3. **No Magic Numbers or Cryptic Names:** Store metrics in named enum spaces with intent-revealing names.
 4. **Comments Explain "Why":** Reserve comments for non-obvious architecture rationale or OS workarounds.
 5. **Resource Cleanliness:** Guarantee teardown of observers and background tasks.
+6. **Zero Comprehension Debt & Cognitive Compression (AI Economics):** Lines of code are cheap to generate with AI, but human and agent comprehension is the bottleneck. Use clean protocols and deep modules (Ousterhout) as cognitive compression algorithms. Reject blind copy-pasting and AI-induced code churn.
+7. **Fault Isolation & Typed Error Hierarchies:** Isolate engine errors so secondary failures never crash the active reader session. Define typed domain errors conforming to `LocalizedError` and `Sendable`.
 
 ---
 
@@ -81,3 +95,4 @@ To prevent key functions or safeguards from being overlooked or improperly integ
 
 3. **Multi-State Edge-Case Verification**:
    - Verify feature behavior across 4 primary runtime states: (1) Initial Load, (2) Zoomed State (1.0x - 3.5x), (3) Orientation Rotation (Portrait ↔ Landscape), and (4) Low Memory Purge.
+

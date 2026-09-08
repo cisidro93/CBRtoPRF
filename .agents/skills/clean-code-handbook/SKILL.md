@@ -45,9 +45,27 @@ This skill provides step-by-step instructions for conducting **Clean Code Audits
   - Always implement observer teardown (`dismantleUIView`, `deinit`) when adding NotificationCenter listeners.
   - Explicitly cancel `Task` instances in `.onDisappear` or before reassigning debounced operations.
 
+### 6. Prevent Comprehension Debt & Eliminate AI-Induced Churn (AI Economics)
+
+- **Rule**: Code is written once but read dozens of times. AI makes lines of code free to produce, but human and agent comprehension remains the hard bottleneck.
+- **Action**:
+  - **Protocols as Cognitive Compression**: Use protocols (`DocumentReaderEngine`, `ZettelkastenLinkEngine`, `CacheRegistryProtocol`) to create semantic boundaries. A clean interface allows developers to reason about *what* code does in 1 cognitive chunk instead of 6 syntax-heavy implementation chunks.
+  - **Deep Modules (Ousterhout)**: Strive for simple public interfaces hiding rich internal implementation. Avoid shallow modules where the interface is as complex as the implementation.
+  - **Zero Comprehension Debt**: Reject blind copy-pasting of AI-generated snippets. If code passes tests but is unreadable or introduces silent complexity, it must be refactored before merging.
+  - **Two-Phase Abstraction ("Stabilize then Extract")**: Avoid premature abstractions (Metz/Abramov). Build the concrete flow first, let it stabilize, then use AI to mechanically extract clean, uncomplected abstractions.
+
+### 7. Explicit Fault Isolation & Structured Error Hierarchies
+
+- **Rule**: Never swallow errors silently or pass untyped strings as error models.
+- **Action**:
+  - Define domain-specific error enums conforming to `LocalizedError` and `Sendable`.
+  - Isolate component failures so an engine error (e.g., failed thumbnail render or corrupt PDF page) degrades gracefully without tearing down the entire reader session.
+
 ## Audit Workflow
 
-1. **Scan for Duplication**: Check if identical gesture handlers, regex routines, or string operations exist across multiple files.
-2. **Audit Component Bounds**: Identify any view or function exceeding 100 lines and modularize it.
-3. **Check Constants**: Replace inline numeric literals with central constants.
-4. **Verify Teardown**: Confirm all async tasks and observers have clean cancellation logic.
+1. **Scan for Duplication & Code Churn**: Check if identical gesture handlers, regex routines, or string operations exist across multiple files.
+2. **Audit Cognitive Load & Component Bounds**: Identify any view or function exceeding reasonable bounds (functions > 40 lines, view bodies > 80 lines) and modularize into deep components.
+3. **Verify Semantic Interfaces**: Confirm that complex subsystem interactions are decoupled through clear protocols rather than tightly coupled concrete classes.
+4. **Check Constants & Naming**: Replace inline numeric literals with central constants and cryptic names with intent-revealing identifiers.
+5. **Verify Teardown & Fault Safety**: Confirm all async tasks and observers have clean cancellation logic and explicit error handling.
+
