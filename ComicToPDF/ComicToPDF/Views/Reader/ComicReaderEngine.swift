@@ -509,7 +509,9 @@ final class ComicImageCache: ObservableObject {
                                     let h = CGFloat(hVal?.doubleValue ?? 0)
                                     return (i, w > h * 1.1)
                                 }
-                            } catch {}
+                            } catch {
+                                Logger.shared.log("ComicImageCache: Failed to inspect orientation for \(entryPath): \(error.localizedDescription)", category: "ComicEngine", type: .warning)
+                            }
                             return (i, false)
                         }
                     }
@@ -3472,6 +3474,10 @@ class UIKeyCommandViewController: UIViewController {
         )
     }
     
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     @objc private func forceBecomeFirstResponder() {
         becomeFirstResponder()
     }

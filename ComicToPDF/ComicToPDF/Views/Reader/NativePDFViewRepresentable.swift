@@ -92,6 +92,10 @@ struct NativePDFViewRepresentable: UIViewRepresentable {
             self.parent = parent
         }
 
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
         nonisolated func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer

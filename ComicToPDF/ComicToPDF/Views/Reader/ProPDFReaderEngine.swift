@@ -1892,6 +1892,10 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
             self.parent = parent
         }
 
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
         @MainActor func handleNativeHighlightAction() {
             parent.onHighlightRequested?()
         }

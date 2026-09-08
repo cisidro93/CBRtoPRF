@@ -254,7 +254,9 @@ class SandboxCleanupManager: ObservableObject {
                         do {
                             try FileManager.default.removeItem(at: item.url)
                             deleted += 1
-                        } catch {}
+                        } catch {
+                            Logger.shared.log("SandboxCleanup: Failed to remove temporary item at \(item.url.lastPathComponent): \(error.localizedDescription)", category: "Cleanup", type: .warning)
+                        }
                     }
                     return deleted
                 }.value
