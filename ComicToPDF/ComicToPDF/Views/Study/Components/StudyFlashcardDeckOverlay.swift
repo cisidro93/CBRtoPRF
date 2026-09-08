@@ -1,17 +1,17 @@
 import SwiftUI
 
 // MARK: - Study Flashcard Spaced Repetition Overlay
-public struct StudyFlashcardDeckOverlay: View {
-    @Binding public var isStudyModeActive: Bool
-    public let studyCards: [SDAnnotation]
-    @Binding public var currentCardIndex: Int
-    @Binding public var isAnswerRevealed: Bool
-    public let correctAnswersCount: Int
-    public let onGrade: (Bool) -> Void
+struct StudyFlashcardDeckOverlay: View {
+    @Binding var isStudyModeActive: Bool
+    let studyCards: [SDAnnotation]
+    @Binding var currentCardIndex: Int
+    @Binding var isAnswerRevealed: Bool
+    let correctAnswersCount: Int
+    let onGrade: (Bool) -> Void
     
     @Environment(\.colorScheme) private var colorScheme
     
-    public init(
+    init(
         isStudyModeActive: Binding<Bool>,
         studyCards: [SDAnnotation],
         currentCardIndex: Binding<Int>,
@@ -27,7 +27,7 @@ public struct StudyFlashcardDeckOverlay: View {
         self.onGrade = onGrade
     }
     
-    public var body: some View {
+    var body: some View {
         ZStack {
             Color.black.opacity(0.4)
                 .background(.ultraThinMaterial)

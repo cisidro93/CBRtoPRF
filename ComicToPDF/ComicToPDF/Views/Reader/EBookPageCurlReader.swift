@@ -223,7 +223,7 @@ extension EBookPageCurlReader {
         // Pre-rendered column snapshots — used for instant, zero-lag 3D page curling
         private var pageSnapshots: [Int: UIImage] = [:]
         // Tokens for block-based NotificationCenter observers to prevent memory leaks
-        private var observerTokens: [NSObjectProtocol] = []
+        nonisolated(unsafe) private var observerTokens: [NSObjectProtocol] = []
 
         init(_ parent: EBookPageCurlReader) {
             self.parent = parent
@@ -256,7 +256,9 @@ extension EBookPageCurlReader {
         }
 
         deinit {
-            cleanup()
+            for token in observerTokens {
+                NotificationCenter.default.removeObserver(token)
+            }
         }
 
         var isUserSelectingText: Bool = false

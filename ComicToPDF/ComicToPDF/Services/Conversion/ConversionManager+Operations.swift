@@ -70,49 +70,45 @@ extension ConversionManager {
                 }.value
                 
                 for fileURL in generatedFiles {
-                    do {
-                        let size: Int64
-                        if let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
-                           let fileSize = attrs[.size] as? Int64 {
-                            size = fileSize
-                        } else if let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
-                                  let resSize = resourceValues.fileSize {
-                            size = Int64(resSize)
-                        } else {
-                            size = 0
-                        }
-                        
-                        let firstPDF = pdfPairs.first
-                        var baseMetadata = firstPDF?.metadata ?? PDFMetadata(title: fileURL.deletingPathExtension().lastPathComponent)
-                        baseMetadata.title = fileURL.deletingPathExtension().lastPathComponent
-                        baseMetadata.issueNumber = nil
-                        baseMetadata.volume = nil
-                        
-                        var newPDF = ConvertedPDF(
-                            id: UUID(),
-                            name: fileURL.deletingPathExtension().lastPathComponent,
-                            url: fileURL,
-                            pageCount: 0,
-                            fileSize: size,
-                            metadata: baseMetadata,
-                            // Merged EPUBs from comic/manga sources should route to ComicReader via .hybrid.
-                            // .comic/.manga are archive-native types; merged EPUB output uses .hybrid to signal
-                            // "fixed-layout EPUB that should display in the comic reader."
-                            contentType: {
-                                guard let first = firstPDF else { return .hybrid }
-                                switch first.contentType {
-                                case .comic, .manga, .hybrid: return .hybrid
-                                case .book: return .book
-                                }
-                            }()
-                        )
-                        newPDF.collectionId = firstPDF?.collectionId
-                        newPDF.lastOutputFormat = settings.outputFormat
-                        newPDF.coverImageData = startCover
-                        self.convertedPDFs.append(newPDF)
-                    } catch {
-                        Logger.shared.log("Omnibus: Failed to register generated volume at '\(fileURL.lastPathComponent)': \(error.localizedDescription)", category: "Conversion", type: .error)
+                    let size: Int64
+                    if let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+                       let fileSize = attrs[.size] as? Int64 {
+                        size = fileSize
+                    } else if let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
+                              let resSize = resourceValues.fileSize {
+                        size = Int64(resSize)
+                    } else {
+                        size = 0
                     }
+                    
+                    let firstPDF = pdfPairs.first
+                    var baseMetadata = firstPDF?.metadata ?? PDFMetadata(title: fileURL.deletingPathExtension().lastPathComponent)
+                    baseMetadata.title = fileURL.deletingPathExtension().lastPathComponent
+                    baseMetadata.issueNumber = nil
+                    baseMetadata.volume = nil
+                    
+                    var newPDF = ConvertedPDF(
+                        id: UUID(),
+                        name: fileURL.deletingPathExtension().lastPathComponent,
+                        url: fileURL,
+                        pageCount: 0,
+                        fileSize: size,
+                        metadata: baseMetadata,
+                        // Merged EPUBs from comic/manga sources should route to ComicReader via .hybrid.
+                        // .comic/.manga are archive-native types; merged EPUB output uses .hybrid to signal
+                        // "fixed-layout EPUB that should display in the comic reader."
+                        contentType: {
+                            guard let first = firstPDF else { return .hybrid }
+                            switch first.contentType {
+                            case .comic, .manga, .hybrid: return .hybrid
+                            case .book: return .book
+                            }
+                        }()
+                    )
+                    newPDF.collectionId = firstPDF?.collectionId
+                    newPDF.lastOutputFormat = settings.outputFormat
+                    newPDF.coverImageData = startCover
+                    self.convertedPDFs.append(newPDF)
                 }
                 self.saveLibrary()
                 self.activeTasks.removeAll(where: { $0.id == taskId })

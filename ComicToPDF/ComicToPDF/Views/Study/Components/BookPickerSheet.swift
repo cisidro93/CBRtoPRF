@@ -2,17 +2,17 @@ import SwiftUI
 import SwiftData
 
 // MARK: - Book Picker Sheet
-public struct BookPickerSheet: View {
+struct BookPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
     
-    public let onSelect: (ConvertedPDF) -> Void
+    let onSelect: (ConvertedPDF) -> Void
     
     @State private var searchQuery = ""
     @State private var books: [SDConvertedPDF] = []
     
-    public init(onSelect: @escaping (ConvertedPDF) -> Void) {
+    init(onSelect: @escaping (ConvertedPDF) -> Void) {
         self.onSelect = onSelect
     }
     
@@ -24,7 +24,7 @@ public struct BookPickerSheet: View {
         }
     }
     
-    public var body: some View {
+    var body: some View {
         NavigationStack {
             ZStack {
                 Color(hex: "#0a0a0f").edgesIgnoringSafeArea(.all)

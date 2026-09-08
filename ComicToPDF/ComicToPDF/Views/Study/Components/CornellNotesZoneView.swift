@@ -2,26 +2,26 @@ import SwiftUI
 import PencilKit
 
 // MARK: - Cornell Notes 3-Zone Paper View
-public struct CornellNotesZoneView: View {
-    public let notebookWidth: CGFloat
-    @Binding public var isCoveredForRecitation: Bool
-    @Binding public var cornellCuesText: String
-    @Binding public var cornellSummaryText: String
-    public let isMarkdownMode: Bool
-    public let paperStyle: PaperStyle
-    public let paperSpacing: CGFloat
-    @Binding public var localNotes: String
-    @Binding public var isFocused: Bool
-    @Binding public var canvasView: PKCanvasView
-    @Binding public var isSmartShapesEnabled: Bool
-    public var onLinkTapped: ((URL) -> Void)?
-    public var onCanvasSaved: (() -> Void)?
-    public let onGenerateCues: () -> Void
-    public let onGenerateSummary: () -> Void
+struct CornellNotesZoneView: View {
+    let notebookWidth: CGFloat
+    @Binding var isCoveredForRecitation: Bool
+    @Binding var cornellCuesText: String
+    @Binding var cornellSummaryText: String
+    let isMarkdownMode: Bool
+    let paperStyle: PaperStyle
+    let paperSpacing: CGFloat
+    @Binding var localNotes: String
+    @Binding var isFocused: Bool
+    @Binding var canvasView: PKCanvasView
+    @Binding var isSmartShapesEnabled: Bool
+    var onLinkTapped: ((URL) -> Void)?
+    var onCanvasSaved: (() -> Void)?
+    let onGenerateCues: () -> Void
+    let onGenerateSummary: () -> Void
     
     @Environment(\.colorScheme) private var colorScheme
     
-    public init(
+    init(
         notebookWidth: CGFloat,
         isCoveredForRecitation: Binding<Bool>,
         cornellCuesText: Binding<String>,
@@ -55,7 +55,7 @@ public struct CornellNotesZoneView: View {
         self.onGenerateSummary = onGenerateSummary
     }
     
-    public var body: some View {
+    var body: some View {
         VStack(spacing: 0) {
             // Top Bar Controls for Cornell
             HStack {

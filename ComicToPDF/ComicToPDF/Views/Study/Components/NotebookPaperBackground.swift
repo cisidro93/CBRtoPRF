@@ -1,7 +1,7 @@
 import SwiftUI
 
 // MARK: - Paper Styles
-public enum PaperStyle: String, CaseIterable, Identifiable {
+enum PaperStyle: String, CaseIterable, Identifiable {
     case plain = "Plain"
     case ruled = "Ruled"
     case grid = "Grid"
@@ -10,8 +10,8 @@ public enum PaperStyle: String, CaseIterable, Identifiable {
     case collegeRuled = "College Ruled"
     case flashcard = "Flashcard"
     
-    public var id: String { self.rawValue }
-    public var icon: String {
+    var id: String { self.rawValue }
+    var icon: String {
         switch self {
         case .plain: return "square"
         case .ruled: return "line.horizontal.3"
@@ -25,18 +25,18 @@ public enum PaperStyle: String, CaseIterable, Identifiable {
 }
 
 // MARK: - Notebook Paper Background Pattern
-public struct NotebookPaperBackground: View {
-    public let style: PaperStyle
-    public let spacing: CGFloat
-    public let colorScheme: ColorScheme
+struct NotebookPaperBackground: View {
+    let style: PaperStyle
+    let spacing: CGFloat
+    let colorScheme: ColorScheme
 
-    public init(style: PaperStyle, spacing: CGFloat, colorScheme: ColorScheme) {
+    init(style: PaperStyle, spacing: CGFloat, colorScheme: ColorScheme) {
         self.style = style
         self.spacing = spacing
         self.colorScheme = colorScheme
     }
 
-    public var body: some View {
+    var body: some View {
         GeometryReader { geo in
             ZStack {
                 // Paper Base Color Fill

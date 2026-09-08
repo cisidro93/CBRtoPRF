@@ -2,13 +2,13 @@ import SwiftUI
 import UIKit
 
 // MARK: - Phase 2: Modern Markdown Engine WYSIWYG
-public struct MarkdownTextEditor: UIViewRepresentable {
-    @Binding public var text: String
-    @Binding public var isFocused: Bool
-    public let paperStyle: PaperStyle
-    public var onLinkTapped: ((URL) -> Void)? = nil
+struct MarkdownTextEditor: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    let paperStyle: PaperStyle
+    var onLinkTapped: ((URL) -> Void)? = nil
     
-    public init(
+    init(
         text: Binding<String>,
         isFocused: Binding<Bool>,
         paperStyle: PaperStyle,
@@ -20,7 +20,7 @@ public struct MarkdownTextEditor: UIViewRepresentable {
         self.onLinkTapped = onLinkTapped
     }
     
-    public func makeUIView(context: Context) -> UITextView {
+    func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
@@ -120,7 +120,7 @@ public struct MarkdownTextEditor: UIViewRepresentable {
         return textView
     }
     
-    public func updateUIView(_ uiView: UITextView, context: Context) {
+    func updateUIView(_ uiView: UITextView, context: Context) {
         updateTextViewPadding(uiView, style: paperStyle)
         
         if uiView.text != text {
@@ -148,7 +148,7 @@ public struct MarkdownTextEditor: UIViewRepresentable {
         context.coordinator.updatePageBreaks(for: uiView)
     }
     
-    public func makeCoordinator() -> Coordinator {
+    func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
     
@@ -178,7 +178,7 @@ public struct MarkdownTextEditor: UIViewRepresentable {
     }
 
     @MainActor
-    public class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
+    class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: MarkdownTextEditor
         weak var textView: UITextView?
         nonisolated(unsafe) private var dictationObserver: NSObjectProtocol?
@@ -302,7 +302,7 @@ public struct MarkdownTextEditor: UIViewRepresentable {
             }
         }
         
-        public func textViewDidChange(_ textView: UITextView) {
+        func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text
             let selectedRange = textView.selectedRange
             textView.attributedText = MarkdownHighlighter.highlight(textView.text, style: parent.paperStyle)
@@ -310,11 +310,11 @@ public struct MarkdownTextEditor: UIViewRepresentable {
             updatePageBreaks(for: textView)
         }
         
-        public func textViewDidBeginEditing(_ textView: UITextView) {
+        func textViewDidBeginEditing(_ textView: UITextView) {
             parent.isFocused = true
         }
         
-        public func textViewDidEndEditing(_ textView: UITextView) {
+        func textViewDidEndEditing(_ textView: UITextView) {
             parent.isFocused = false
         }
         
@@ -323,7 +323,7 @@ public struct MarkdownTextEditor: UIViewRepresentable {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
 
-        public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             guard let textView = textView else { return false }
             let point = touch.location(in: textView)
             
@@ -377,7 +377,7 @@ public struct MarkdownTextEditor: UIViewRepresentable {
 
         #if compiler(>=5.9)
         @available(iOS 17.0, *)
-        public func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+        func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
             if case .link(let url) = textItem.content {
                 if url.scheme == "inksync" || url.scheme == "page" {
                     return UIAction { [weak self] _ in
@@ -390,7 +390,7 @@ public struct MarkdownTextEditor: UIViewRepresentable {
         #endif
 
         @available(iOS, deprecated: 17.0)
-        public func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+        func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
             if URL.scheme == "inksync" || URL.scheme == "page" {
                 parent.onLinkTapped?(URL)
                 return false
@@ -451,8 +451,8 @@ final class FormatButton: UIButton {
 }
 
 // MARK: - Markdown Syntax Highlighter
-public struct MarkdownHighlighter {
-    public static func highlight(_ text: String, style: PaperStyle) -> NSAttributedString {
+struct MarkdownHighlighter {
+    static func highlight(_ text: String, style: PaperStyle) -> NSAttributedString {
         let baseSize: CGFloat
         let lineSpacingVal: CGFloat
         let lineSpacingTarget: CGFloat
