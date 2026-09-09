@@ -124,84 +124,47 @@ struct MetadataHeuristics {
                 }
             }
         } else if ext == "epub" {
-            // Check if it's fixed layout/comic
+            // EPUBs are electronic publications featuring structured HTML, CSS, and reflowable or fixed layouts.
+            // They are natively parsed and rendered by EBookReaderView (WebKit) -> default to .book.
             let didAccess = url.startAccessingSecurityScopedResource()
             defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
             
             var isEPUBComic = false
-            var epubRationale = "Reflowable text EPUB"
+            var epubRationale = "Standard electronic book publication"
             
-            do {
-                guard let archive = try? Archive(url: url, accessMode: .read, pathEncoding: .utf8) else {
-                    decidedType = .book
-                    rationale = "Could not read EPUB archive -> default .book"
-                    Logger.shared.log("MetadataHeuristics: Evaluated '\(url.lastPathComponent)' -> .\(decidedType.rawValue) | Ext: .\(ext) | Header: \(headerStr) | Rationale: \(rationale)", category: "ContentType", type: .info)
-                    return .book
-                }
-                
-                if let containerEntry = archive["META-INF/container.xml"] {
-                    var containerData = Data()
-                    _ = try archive.extract(containerEntry) { data in containerData.append(data) }
-                    
-                    if let containerStr = String(data: containerData, encoding: .utf8),
-                       let opfPath = MetadataHeuristics.extractOPFPath(from: containerStr),
-                       let opfEntry = archive[opfPath] {
-                        
-                        var opfData = Data()
-                        _ = try archive.extract(opfEntry) { data in opfData.append(data) }
-                        
-                        if let opfStr = String(data: opfData, encoding: .utf8) {
-                            let lowerOPF = opfStr.lowercased()
-                            if lowerOPF.contains("pre-paginated") || 
-                               lowerOPF.contains("comic-book") || 
-                               lowerOPF.contains("fixed-layout") || 
-                               lowerOPF.contains("image-based") ||
-                               lowerOPF.contains("manga") {
-                                isEPUBComic = true
-                                epubRationale = "Fixed-layout/comic OPF metadata detected"
+            // Only examine for comic archive emulation if filename explicitly matches comic/manga keywords
+            if isManga || isComic {
+                do {
+                    if let archive = try? Archive(url: url, accessMode: .read, pathEncoding: .utf8) {
+                        let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "webp", "gif", "heic"]
+                        var imageCount = 0
+                        var htmlCount = 0
+                        for entry in archive {
+                            let entryPathLower = entry.path.lowercased()
+                            let name = (entryPathLower as NSString).lastPathComponent
+                            guard !entryPathLower.contains("__macosx"), !name.hasPrefix("._"), name != ".ds_store", !entryPathLower.hasSuffix("/") else { continue }
+                            let entryExt = (name as NSString).pathExtension.lowercased()
+                            if imageExtensions.contains(entryExt) {
+                                imageCount += 1
+                            } else if ["xhtml", "html", "htm"].contains(entryExt) {
+                                htmlCount += 1
                             }
                         }
-                    }
-                }
-                
-                // Fallback strategy: check for dedicated image-comic EPUBs (e.g. Manga/CBZ converted to EPUB)
-                // Requires a high volume of images (>= 25) that match or exceed HTML page count
-                if !isEPUBComic {
-                    let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "webp", "gif", "heic"]
-                    var imageCount = 0
-                    var htmlCount = 0
-                    for entry in archive {
-                        let entryPathLower = entry.path.lowercased()
-                        let name = (entryPathLower as NSString).lastPathComponent
-                        guard !entryPathLower.contains("__macosx"), !name.hasPrefix("._"), name != ".ds_store", !entryPathLower.hasSuffix("/") else { continue }
-                        let entryExt = (name as NSString).pathExtension.lowercased()
-                        if imageExtensions.contains(entryExt) {
-                            imageCount += 1
-                        } else if ["xhtml", "html", "htm"].contains(entryExt) {
-                            htmlCount += 1
+                        // Requires pure image archive converted to EPUB: high volume of images that cover every page
+                        if imageCount >= 25 && htmlCount > 0 && Double(imageCount) >= Double(htmlCount) * 0.95 {
+                            isEPUBComic = true
+                            epubRationale = "Pure image-wrapper comic EPUB (\(imageCount) full-page image leaves)"
                         }
                     }
-                    if imageCount >= 25 && htmlCount > 0 && Double(imageCount) >= Double(htmlCount) * 0.85 {
-                        isEPUBComic = true
-                        epubRationale = "High image-to-HTML density (\(imageCount) images vs \(htmlCount) pages)"
-                    }
                 }
-                
-                if isEPUBComic {
-                    if isManga {
-                        decidedType = .manga
-                        rationale = "EPUB comic (\(epubRationale)) with manga keywords: \(matchedManga)"
-                    } else {
-                        decidedType = .comic
-                        rationale = "EPUB comic (\(epubRationale))"
-                    }
-                } else {
-                    decidedType = .book
-                    rationale = epubRationale
-                }
-            } catch {
+            }
+            
+            if isEPUBComic {
+                decidedType = isManga ? .manga : .comic
+                rationale = epubRationale
+            } else {
                 decidedType = .book
-                rationale = "Archive inspection error: \(error.localizedDescription) -> default .book"
+                rationale = "Electronic publication format -> .book (WebKit layout active)"
             }
         } else {
             if isManga {

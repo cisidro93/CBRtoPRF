@@ -347,9 +347,22 @@ struct UnifiedReaderView: View {
             }
             logReaderRouting(trigger: "Live Engine Switch -> \(targetEngine)")
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SwitchToBookReader"))) { _ in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                activeEngineOverride = .book
+                epubComicCheckResult = false
+                ConversionManager.shared.updateContentType(for: pdf.id, to: .book)
+            }
+            logReaderRouting(trigger: "Fallback to Book Reader")
+        }
         .onAppear {
             // Auto-heal misclassified PDF books that were mistakenly tagged as comic without explicit user choice
             if isPDFDocument && pdf.contentType == .comic && pdf.metadata.hasFormatOverride != true {
+                ConversionManager.shared.updateContentType(for: pdf.id, to: .book)
+            }
+            // Auto-heal misclassified EPUB documents that were mistakenly tagged as comic/hybrid without explicit user choice
+            let ext = pdf.url.pathExtension.lowercased()
+            if ext == "epub" && (pdf.contentType == .comic || pdf.contentType == .hybrid) && pdf.metadata.hasFormatOverride != true {
                 ConversionManager.shared.updateContentType(for: pdf.id, to: .book)
             }
             logReaderRouting(trigger: "onAppear")
@@ -465,11 +478,7 @@ struct UnifiedReaderView: View {
                     
                     if let opfStr = String(data: opfData, encoding: .utf8) {
                         let lowerOPF = opfStr.lowercased()
-                        if lowerOPF.contains("pre-paginated") || 
-                           lowerOPF.contains("comic-book") || 
-                           lowerOPF.contains("fixed-layout") || 
-                           lowerOPF.contains("image-based") ||
-                           lowerOPF.contains("manga") {
+                        if lowerOPF.contains("comic-book") || lowerOPF.contains("comicbook") || (lowerOPF.contains("fixed-layout") && lowerOPF.contains("manga")) {
                             isComic = true
                             Logger.shared.log("isEPUBComic: ✅ OPF metadata matched — routing to ComicReader", category: "Reader", type: .success)
                         }
@@ -531,12 +540,12 @@ struct UnifiedReaderView: View {
                         
                         Logger.shared.log("isEPUBComic: sampled \(sampledCount) pages. Avg text char count: \(avgTextCharacters), Image ratio: \(imageRatio)", category: "Reader", type: .info)
                         
-                        // If average readable text count per page is high, it is a reflowable chapter-based text book.
-                        if avgTextCharacters > 300 {
+                        // If average readable text count per page is present, it is a reflowable chapter-based text book.
+                        if avgTextCharacters > 120 {
                             isComic = false
                             Logger.shared.log("isEPUBComic: ❌ High average text character count (\(avgTextCharacters)) -> Book", category: "Reader", type: .success)
-                        } else if avgTextCharacters < 150 && imageRatio >= 0.75 {
-                            // Low text count and high frequency of full-page image wrappers -> Comic
+                        } else if avgTextCharacters < 40 && imageRatio >= 0.85 {
+                            // Minimal text count and high frequency of full-page image wrappers -> Comic
                             isComic = true
                             Logger.shared.log("isEPUBComic: ✅ Low text (\(avgTextCharacters)) and high image ratio (\(imageRatio)) -> Comic", category: "Reader", type: .success)
                         }

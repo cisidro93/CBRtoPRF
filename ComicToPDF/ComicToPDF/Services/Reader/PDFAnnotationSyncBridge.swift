@@ -3,6 +3,34 @@ import PDFKit
 import PencilKit
 import SwiftUI
 
+// MARK: - Thread-Safe PDF Disk Debouncer
+
+private actor PDFDiskDebouncer {
+    private var pendingTasks: [UUID: Task<Void, Never>] = [:]
+    
+    func schedule(
+        id: UUID,
+        delaySeconds: Double = 3.0,
+        operation: @Sendable @escaping () async -> Void
+    ) {
+        pendingTasks[id]?.cancel()
+        pendingTasks[id] = Task {
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                await operation()
+            } catch {
+                // Task cancelled
+            }
+        }
+    }
+    
+    func cancel(id: UUID) {
+        pendingTasks[id]?.cancel()
+        pendingTasks.removeValue(forKey: id)
+    }
+}
+
 // MARK: - Native PDF Annotation Interoperability Bridge
 
 /// Bi-directional synchronization service bridging InkSync Pro's `AnnotationStore`
@@ -10,6 +38,7 @@ import SwiftUI
 final class PDFAnnotationSyncBridge: Sendable {
     
     static let shared = PDFAnnotationSyncBridge()
+    private let debouncer = PDFDiskDebouncer()
     
     init() {}
     
@@ -71,9 +100,28 @@ final class PDFAnnotationSyncBridge: Sendable {
                     highlightColor = UIColor.systemYellow.withAlphaComponent(0.55)
                 }
                 
-                var didAdd = false
+                // Primary: reconstruct exact coordinates from recorded normalized bounds in O(1)
+                if let b = annotation.bounds {
+                    let bounds = CGRect(
+                        x: pageBounds.minX + (b.x * pageBounds.width),
+                        y: pageBounds.minY + (b.y * pageBounds.height),
+                        width: b.width * pageBounds.width,
+                        height: b.height * pageBounds.height
+                    )
+                    if bounds.width > 2 && bounds.height > 2 {
+                        let nativeHighlight = PDFAnnotation(bounds: bounds, forType: nativeType, withProperties: nil)
+                        nativeHighlight.userName = annotation.id.uuidString
+                        nativeHighlight.color = highlightColor
+                        nativeHighlight.contents = annotation.selectedText ?? annotation.noteText
+                        nativeHighlight.shouldDisplay = true
+                        nativeHighlight.shouldPrint = true
+                        nativeHighlight.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: bounds)
+                        page.addAnnotation(nativeHighlight)
+                        continue
+                    }
+                }
                 
-                // Primary: match text exactly on page
+                // Fallback only if bounds missing: search text scoped to this single page
                 if let text = annotation.selectedText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     let matches = page.document?.findString(text, withOptions: .caseInsensitive) ?? []
                     for match in matches where match.pages.contains(page) {
@@ -91,33 +139,8 @@ final class PDFAnnotationSyncBridge: Sendable {
                         nativeHighlight.shouldPrint = true
                         nativeHighlight.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects)
                         page.addAnnotation(nativeHighlight)
-                        didAdd = true
                         break // first matching instance on page
                     }
-                }
-                
-                // Fallback to recorded bounds if text match didn't yield annotations
-                if !didAdd {
-                    let bounds: CGRect
-                    if let b = annotation.bounds {
-                        bounds = CGRect(
-                            x: pageBounds.minX + (b.x * pageBounds.width),
-                            y: pageBounds.minY + (b.y * pageBounds.height),
-                            width: b.width * pageBounds.width,
-                            height: b.height * pageBounds.height
-                        )
-                    } else {
-                        bounds = CGRect(x: pageBounds.minX + 20, y: pageBounds.maxY - 100, width: pageBounds.width - 40, height: 24)
-                    }
-                    guard bounds.width > 2, bounds.height > 2 else { continue }
-                    let nativeHighlight = PDFAnnotation(bounds: bounds, forType: nativeType, withProperties: nil)
-                    nativeHighlight.userName = annotation.id.uuidString
-                    nativeHighlight.color = highlightColor
-                    nativeHighlight.contents = annotation.selectedText ?? annotation.noteText
-                    nativeHighlight.shouldDisplay = true
-                    nativeHighlight.shouldPrint = true
-                    nativeHighlight.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: bounds)
-                    page.addAnnotation(nativeHighlight)
                 }
                 
             case .note:
@@ -162,14 +185,34 @@ final class PDFAnnotationSyncBridge: Sendable {
 
     // MARK: - Sync & Persist to Document Disk Storage
     
+    /// Non-blocking, debounced disk persistence for interactive highlighting.
+    /// Defers PDF binary serialization to a trailing background task after user interactions cease.
+    @MainActor
+    func scheduleDebouncedDiskSync(for pdfID: UUID, in document: PDFDocument, at destinationURL: URL? = nil) {
+        guard let targetURL = destinationURL ?? document.documentURL else { return }
+        
+        Task {
+            await debouncer.schedule(id: pdfID, delaySeconds: 3.0) { [weak document] in
+                guard let doc = document else { return }
+                await MainActor.run {
+                    Self.serializeAndWrite(document: doc, targetURL: targetURL)
+                }
+            }
+        }
+    }
+    
     /// Synchronizes all in-memory and SwiftData annotations from `AnnotationStore` directly into the live `PDFDocument`
-    /// and writes the updated document back to disk asynchronously in the background.
+    /// and writes the updated document back to disk immediately (e.g. on view exit or document export).
     @MainActor
     func syncStoreToDocument(for pdfID: UUID, in document: PDFDocument, at destinationURL: URL? = nil) {
         applyStoreAnnotations(for: pdfID, to: document)
         guard let targetURL = destinationURL ?? document.documentURL else { return }
-        
-        // Serialize PDF to Sendable Data on MainActor, then offload disk I/O to background Task
+        Self.serializeAndWrite(document: document, targetURL: targetURL)
+    }
+    
+    @MainActor
+    private static func serializeAndWrite(document: PDFDocument, targetURL: URL) {
+        // Serialize PDF to Sendable Data on MainActor when system is idle, then offload disk I/O to background Task
         guard let pdfData = document.dataRepresentation() else {
             let didAccess = targetURL.startAccessingSecurityScopedResource()
             defer { if didAccess { targetURL.stopAccessingSecurityScopedResource() } }
@@ -177,7 +220,6 @@ final class PDFAnnotationSyncBridge: Sendable {
             return
         }
         
-        // Offload disk persistence to background thread with Sendable Data to preserve 120Hz ProMotion UI responsiveness
         Task.detached(priority: .utility) {
             let didAccess = targetURL.startAccessingSecurityScopedResource()
             defer { if didAccess { targetURL.stopAccessingSecurityScopedResource() } }

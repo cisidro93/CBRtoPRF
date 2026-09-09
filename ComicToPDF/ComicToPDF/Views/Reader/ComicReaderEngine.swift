@@ -1575,13 +1575,29 @@ struct ComicReaderEngine: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
 
-                    Button { onDismiss() } label: {
-                        Label("Close Reader", systemImage: "xmark.circle.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 28)
-                            .padding(.vertical, 14)
-                            .background(Color.white, in: Capsule())
+                    HStack(spacing: 12) {
+                        let isEPUB = pdf.url.pathExtension.lowercased() == "epub" || pdf.name.lowercased().hasSuffix(".epub")
+                        if isEPUB {
+                            Button {
+                                NotificationCenter.default.post(name: NSNotification.Name("SwitchToBookReader"), object: nil)
+                            } label: {
+                                Label("Open in Book Reader", systemImage: "book.fill")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.black)
+                                    .padding(.horizontal, 22)
+                                    .padding(.vertical, 12)
+                                    .background(Color.inkGreen, in: Capsule())
+                            }
+                        }
+                        
+                        Button { onDismiss() } label: {
+                            Label("Close Reader", systemImage: "xmark.circle.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(isEPUB ? .white : .black)
+                                .padding(.horizontal, 22)
+                                .padding(.vertical, 12)
+                                .background(isEPUB ? Color.white.opacity(0.15) : Color.white, in: Capsule())
+                        }
                     }
                     .padding(.top, 8)
                 }

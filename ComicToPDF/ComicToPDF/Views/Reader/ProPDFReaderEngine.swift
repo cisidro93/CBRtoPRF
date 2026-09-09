@@ -128,31 +128,96 @@ struct ProPDFReaderEngine: View {
             }
             if let pv = pdfViewReference {
                 pv.displayBox = .mediaBox
-                pv.autoScales = false
                 pv.autoScales = true
-                pv.scaleFactor = pv.scaleFactorForSizeToFit
                 pv.layoutDocumentView()
             }
         } else if insets.modeRaw == "smartAuto" {
             isCroppedMode = true
-            let sensitivity = max(0.02, min(0.08, prefs.autoCropSensitivity * 0.35))
-            for i in 0..<doc.pageCount {
-                if let page = doc.page(at: i) {
-                    let mediaBox = page.bounds(for: .mediaBox)
-                    let insetX = mediaBox.width * sensitivity
-                    let insetY = mediaBox.height * sensitivity
-                    page.setBounds(mediaBox.insetBy(dx: insetX, dy: insetY), for: .cropBox)
+            
+            // KOReader / k2pdfopt Parity: Document-Wide Uniform Content Bounds
+            // Sample representative pages across the document to compute the composite content box.
+            let total = doc.pageCount
+            let sampleCount = min(25, total)
+            let step = max(1, total / sampleCount)
+            
+            var sampledLeftMargins: [CGFloat] = []
+            var sampledRightMargins: [CGFloat] = []
+            var sampledTopMargins: [CGFloat] = []
+            var sampledBottomMargins: [CGFloat] = []
+            
+            for idx in stride(from: 0, to: total, by: step) {
+                guard let page = doc.page(at: idx) else { continue }
+                let mediaBox = page.bounds(for: .mediaBox)
+                guard mediaBox.width > 50 && mediaBox.height > 50 else { continue }
+                
+                // If page has digital text layer, extract text bounding rect directly
+                if let selection = page.selection(for: mediaBox) {
+                    let textRect = selection.bounds(for: page)
+                    if textRect.width > 20 && textRect.height > 20 {
+                        let leftRatio = max(0, (textRect.minX - mediaBox.minX) / mediaBox.width)
+                        let rightRatio = max(0, (mediaBox.maxX - textRect.maxX) / mediaBox.width)
+                        let bottomRatio = max(0, (textRect.minY - mediaBox.minY) / mediaBox.height)
+                        let topRatio = max(0, (mediaBox.maxY - textRect.maxY) / mediaBox.height)
+                        
+                        sampledLeftMargins.append(leftRatio)
+                        sampledRightMargins.append(rightRatio)
+                        sampledBottomMargins.append(bottomRatio)
+                        sampledTopMargins.append(topRatio)
+                    }
                 }
             }
+            
+            // Baseline sensitivity fallback if document has few or no digital text layers (scanned books)
+            let baseSensitivity = max(0.03, min(0.09, prefs.autoCropSensitivity * 0.40))
+            
+            // Calculate safe minimal margins across all sampled pages with a protective 12pt cushion
+            let safeLeftMargin: CGFloat
+            let safeRightMargin: CGFloat
+            let safeTopMargin: CGFloat
+            let safeBottomMargin: CGFloat
+            
+            if !sampledLeftMargins.isEmpty {
+                // Use the minimum margin found across all pages so NO text is ever clipped on ANY page.
+                // Apply a safety cushion of 0.02 (~12-16pt)
+                let rawMinLeft = max(0.01, (sampledLeftMargins.min() ?? baseSensitivity) - 0.02)
+                let rawMinRight = max(0.01, (sampledRightMargins.min() ?? baseSensitivity) - 0.02)
+                let rawMinTop = max(0.01, (sampledTopMargins.min() ?? baseSensitivity) - 0.02)
+                let rawMinBottom = max(0.01, (sampledBottomMargins.min() ?? baseSensitivity) - 0.02)
+                
+                // Symmetrical horizontal margin ensures identical aspect ratio and stationary baseline across flips
+                let horiz = min(rawMinLeft, rawMinRight)
+                safeLeftMargin = min(0.18, max(baseSensitivity, horiz))
+                safeRightMargin = safeLeftMargin
+                safeTopMargin = min(0.15, max(baseSensitivity, rawMinTop))
+                safeBottomMargin = min(0.15, max(baseSensitivity, rawMinBottom))
+            } else {
+                safeLeftMargin = baseSensitivity
+                safeRightMargin = baseSensitivity
+                safeTopMargin = baseSensitivity
+                safeBottomMargin = baseSensitivity
+            }
+            
+            // Apply single uniform crop rectangle to EVERY page in the entire document
+            for i in 0..<total {
+                if let page = doc.page(at: i) {
+                    let mediaBox = page.bounds(for: .mediaBox)
+                    let uniformCrop = CGRect(
+                        x: mediaBox.minX + (mediaBox.width * safeLeftMargin),
+                        y: mediaBox.minY + (mediaBox.height * safeBottomMargin),
+                        width: max(10, mediaBox.width * (1.0 - safeLeftMargin - safeRightMargin)),
+                        height: max(10, mediaBox.height * (1.0 - safeTopMargin - safeBottomMargin))
+                    )
+                    page.setBounds(uniformCrop, for: .cropBox)
+                }
+            }
+            
             if let pv = pdfViewReference {
                 pv.displayBox = .cropBox
-                pv.autoScales = false
                 pv.autoScales = true
-                pv.scaleFactor = pv.scaleFactorForSizeToFit
                 pv.layoutDocumentView()
             }
         } else {
-            // Custom Pro Crop Insets
+            // Custom Pro Crop Insets applied uniformly across all pages
             isCroppedMode = true
             for i in 0..<doc.pageCount {
                 if let page = doc.page(at: i) {
@@ -168,9 +233,7 @@ struct ProPDFReaderEngine: View {
             }
             if let pv = pdfViewReference {
                 pv.displayBox = .cropBox
-                pv.autoScales = false
                 pv.autoScales = true
-                pv.scaleFactor = pv.scaleFactorForSizeToFit
                 pv.layoutDocumentView()
             }
         }
@@ -1163,6 +1226,9 @@ struct ProPDFReaderEngine: View {
         let total = max(1, totalPages)
         progress.completionFraction = Double(currentPageIndex + 1) / Double(total)
         ReaderProgressTracker.shared.update(progress)
+        if let doc = pdfDocument {
+            PDFAnnotationSyncBridge.shared.syncStoreToDocument(for: pdf.id, in: doc, at: resolvedURL)
+        }
     }
 
     private func jumpToPage(_ pageIndex: Int) {
@@ -1174,7 +1240,8 @@ struct ProPDFReaderEngine: View {
                     self.jumpToPage(fromPage)
                 }
             }
-            velocityEngine.recordPageTurn()
+            let remaining = max(0, totalPages - (clamped + 1))
+            velocityEngine.recordPageTurn(remainingPages: remaining)
             if readingRoom.isHosting {
                 readingRoom.broadcastPage(clamped, totalPages: max(1, totalPages))
             }
@@ -1193,12 +1260,13 @@ struct ProPDFReaderEngine: View {
 
         guard let pdfView = pdfViewReference else { return }
 
+        let remaining = max(0, totalPages - (currentPageIndex + 1))
         if effectiveForward {
             if pdfView.canGoToNextPage {
                 // goToNextPage handles twoUp spread boundaries natively —
                 // we never need to manually compute +1 or +2; PDFKit knows.
                 pdfView.goToNextPage(nil)
-                velocityEngine.recordPageTurn()
+                velocityEngine.recordPageTurn(remainingPages: remaining)
                 if readingRoom.isHosting {
                     readingRoom.broadcastPage(currentPageIndex, totalPages: max(1, totalPages))
                 }
@@ -1208,7 +1276,7 @@ struct ProPDFReaderEngine: View {
         } else {
             if pdfView.canGoToPreviousPage {
                 pdfView.goToPreviousPage(nil)
-                velocityEngine.recordPageTurn()
+                velocityEngine.recordPageTurn(remainingPages: remaining)
                 if readingRoom.isHosting {
                     readingRoom.broadcastPage(currentPageIndex, totalPages: max(1, totalPages))
                 }
@@ -1389,7 +1457,7 @@ struct ProPDFReaderEngine: View {
         )
         AnnotationStore.shared.add(highlight)
         if let doc = activeDoc {
-            PDFAnnotationSyncBridge.shared.syncStoreToDocument(for: pdf.id, in: doc, at: resolvedURL)
+            PDFAnnotationSyncBridge.shared.scheduleDebouncedDiskSync(for: pdf.id, in: doc, at: resolvedURL)
         }
         activeSelectionSnapshot = nil
         showToastMessage(toastTitle)
@@ -1400,46 +1468,12 @@ struct ProPDFReaderEngine: View {
         saveMarkup(text: text, color: color, style: .highlight)
     }
 
-    /// Forces PDFView to repaint annotation tiles on the target page immediately.
-    /// Uses a two-phase run-loop dispatch to invalidate CATiledLayer cached bitmap tiles,
-    /// guaranteeing instant 120Hz visual rendering of new highlights on iOS/iPadOS.
+    /// Repaints PDFView to display new annotation graphics smoothly without thrashing CATiledLayer.
     private func forcePageRedraw(_ pdfView: PDFView, pageIndex: Int) {
         pdfView.layoutDocumentView()
         pdfView.setNeedsDisplay()
-        
-        let currentScale = pdfView.scaleFactor
-        if currentScale > 0.001 {
-            // Phase 1: Displace scaleFactor slightly across run-loop boundary to break the CATiledLayer tile cache
-            pdfView.scaleFactor = currentScale * 1.0005
-            pdfView.layoutDocumentView()
-            
-            // Phase 2: Restore exact scaleFactor on next frame and redraw view hierarchy
-            DispatchQueue.main.async {
-                pdfView.scaleFactor = currentScale
-                pdfView.layoutDocumentView()
-                pdfView.setNeedsDisplay()
-                
-                if let docView = pdfView.documentView {
-                    docView.setNeedsLayout()
-                    docView.layoutIfNeeded()
-                    docView.setNeedsDisplay()
-                    for pageView in docView.subviews {
-                        pageView.setNeedsDisplay()
-                        pageView.layer.setNeedsDisplay()
-                        for tile in pageView.subviews {
-                            tile.setNeedsDisplay()
-                            tile.layer.setNeedsDisplay()
-                        }
-                    }
-                }
-                for sv in pdfView.subviews {
-                    sv.setNeedsDisplay()
-                    for inner in sv.subviews {
-                        inner.setNeedsDisplay()
-                        inner.layer.setNeedsDisplay()
-                    }
-                }
-            }
+        if let docView = pdfView.documentView {
+            docView.setNeedsDisplay()
         }
     }
 
@@ -1457,7 +1491,7 @@ struct ProPDFReaderEngine: View {
         )
         AnnotationStore.shared.add(noteAnn)
         if let doc = pdfDocument {
-            PDFAnnotationSyncBridge.shared.syncStoreToDocument(for: pdf.id, in: doc, at: resolvedURL)
+            PDFAnnotationSyncBridge.shared.scheduleDebouncedDiskSync(for: pdf.id, in: doc, at: resolvedURL)
         }
     }
 
@@ -1476,7 +1510,7 @@ struct ProPDFReaderEngine: View {
         ann.marginaliaSymbolRaw = symbol
         AnnotationStore.shared.add(ann)
         if let doc = pdfDocument {
-            PDFAnnotationSyncBridge.shared.syncStoreToDocument(for: pdf.id, in: doc, at: resolvedURL)
+            PDFAnnotationSyncBridge.shared.scheduleDebouncedDiskSync(for: pdf.id, in: doc, at: resolvedURL)
         }
     }
 
@@ -1827,8 +1861,8 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                     uiView.scaleFactor = targetScale
                 }
             } else if context.coordinator.userCustomZoomScale == nil {
-                if fitScale > 0.001 && abs(uiView.scaleFactor - fitScale) > fitScale * 0.05 {
-                    uiView.scaleFactor = fitScale
+                if !uiView.autoScales {
+                    uiView.autoScales = true
                 }
             }
         }

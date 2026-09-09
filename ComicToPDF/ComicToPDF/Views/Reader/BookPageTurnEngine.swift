@@ -26,6 +26,7 @@ struct PageCurlReader: UIViewControllerRepresentable {
     }
 
     func computeSpreads() -> [[Int]] {
+        guard totalPages > 0 else { return [] }
         var allSpreads: [[Int]] = []
         let landscapeArray = cache.isLandscapeArray
         let linkCover = EBookPreferences.shared.linkCoverAsSpread
@@ -640,9 +641,10 @@ struct SmartMidSpineCurlReader: UIViewControllerRepresentable {
     var onFlipPastEnd: (() -> Void)? = nil
 
     func computeSpreads() -> [[Int]] {
+        let pageCount = cache.pageCount
+        guard pageCount > 0 && totalPages > 0 else { return [] }
         var allSpreads: [[Int]] = []
         let landscapeArray = cache.isLandscapeArray
-        let pageCount = cache.pageCount
         let linkCover = EBookPreferences.shared.linkCoverAsSpread
 
         let isPageL: (Int) -> Bool = { idx in
@@ -745,7 +747,7 @@ struct SmartMidSpineCurlReader: UIViewControllerRepresentable {
         context.coordinator.pageViewController = pageViewController
         
         let initialSpread = context.coordinator.spreadViewControllers(for: currentIndex)
-        pageViewController.setViewControllers(initialSpread, direction: .forward, animated: false)
+        context.coordinator.safeSetViewControllers(initialSpread, direction: .forward, animated: false)
         return pageViewController
     }
 
@@ -772,7 +774,7 @@ struct SmartMidSpineCurlReader: UIViewControllerRepresentable {
         }
         
         let targetSpread = context.coordinator.spreadViewControllers(for: currentIndex)
-        uiViewController.setViewControllers(targetSpread, direction: .forward, animated: false)
+        context.coordinator.safeSetViewControllers(targetSpread, direction: .forward, animated: false)
     }
 }
 
@@ -807,15 +809,57 @@ extension SmartMidSpineCurlReader {
 
         @objc func handleOrientationsScanned(_ notification: Notification) {
             DispatchQueue.main.async { [weak self] in
-                guard let self = self, let pvc = self.pageViewController else { return }
+                guard let self = self, let _ = self.pageViewController else { return }
                 let currentSpread = self.spreadViewControllers(for: self.parent.currentIndex)
-                pvc.setViewControllers(currentSpread, direction: .forward, animated: false)
+                self.safeSetViewControllers(currentSpread, direction: .forward, animated: false)
             }
         }
 
+        func safeSetViewControllers(
+            _ vcs: [UIViewController],
+            direction: UIPageViewController.NavigationDirection,
+            animated: Bool,
+            completion: ((Bool) -> Void)? = nil
+        ) {
+            guard let pvc = pageViewController else { return }
+            let isSlide = (parent.transitionStyle == .scroll)
+            let reqCount = isSlide ? 1 : 2
+            
+            let safeVCs: [UIViewController]
+            if reqCount == 1 {
+                if let first = vcs.first {
+                    safeVCs = [first]
+                } else {
+                    safeVCs = [SingleLeafViewController(pageIndex: -1, parent: parent)]
+                }
+            } else {
+                if vcs.count >= 2 {
+                    safeVCs = Array(vcs.prefix(2))
+                } else if let first = vcs.first {
+                    let blank = SingleLeafViewController(pageIndex: -1, parent: parent)
+                    safeVCs = [first, blank]
+                } else {
+                    let b1 = SingleLeafViewController(pageIndex: -1, parent: parent)
+                    let b2 = SingleLeafViewController(pageIndex: -1, parent: parent)
+                    safeVCs = [b1, b2]
+                }
+            }
+            pvc.setViewControllers(safeVCs, direction: direction, animated: animated, completion: completion)
+        }
+
         func spreadViewControllers(for pageIndex: Int) -> [UIViewController] {
+            guard parent.totalPages > 0 && parent.cache.pageCount > 0 else {
+                let b1 = SingleLeafViewController(pageIndex: -1, parent: parent)
+                let b2 = SingleLeafViewController(pageIndex: -1, parent: parent)
+                return [b1, b2]
+            }
             let spreads = parent.computeSpreads()
-            let targetSpread = spreads.first(where: { $0.contains(pageIndex) }) ?? [max(0, pageIndex)]
+            guard !spreads.isEmpty else {
+                let b1 = SingleLeafViewController(pageIndex: -1, parent: parent)
+                let b2 = SingleLeafViewController(pageIndex: -1, parent: parent)
+                return [b1, b2]
+            }
+            let targetSpread = spreads.first(where: { $0.contains(pageIndex) }) ?? spreads.first ?? [max(0, pageIndex)]
             
             if targetSpread == [0] {
                 let coverVC = SingleLeafViewController(pageIndex: 0, parent: parent, alignment: parent.isMangaRTL ? .leading : .trailing)
@@ -971,7 +1015,7 @@ extension SmartMidSpineCurlReader {
                     HapticEngine.light()
                     let direction: UIPageViewController.NavigationDirection = parent.isMangaRTL ? .reverse : .forward
                     isTransitioning = true // 🔴 Lock transitions during tap page flip
-                    pvc.setViewControllers(targetSpread, direction: direction, animated: true) { [weak self] completed in
+                    safeSetViewControllers(targetSpread, direction: direction, animated: true) { [weak self] completed in
                         self?.isTransitioning = false // 🔓 Unlock transition
                         if completed {
                             DispatchQueue.main.async {
@@ -996,7 +1040,7 @@ extension SmartMidSpineCurlReader {
                     HapticEngine.light()
                     let direction: UIPageViewController.NavigationDirection = parent.isMangaRTL ? .forward : .reverse
                     isTransitioning = true // 🔴 Lock transitions during tap page flip
-                    pvc.setViewControllers(targetSpread, direction: direction, animated: true) { [weak self] completed in
+                    safeSetViewControllers(targetSpread, direction: direction, animated: true) { [weak self] completed in
                         self?.isTransitioning = false // 🔓 Unlock transition
                         if completed {
                             DispatchQueue.main.async {
