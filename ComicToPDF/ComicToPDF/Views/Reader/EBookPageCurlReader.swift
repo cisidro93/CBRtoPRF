@@ -216,7 +216,7 @@ extension EBookPageCurlReader {
         private var chapterHTML: String = ""
         private var chapterBaseURL: URL?
         private var styledCSS: String = ""
-        private var computedTotalPages: Int = 1
+        var computedTotalPages: Int = 1
         var currentPageIndex: Int = 0
         private var hasLoadedInitialPage: Bool = false
 

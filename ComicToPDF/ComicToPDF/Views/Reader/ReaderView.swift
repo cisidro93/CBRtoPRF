@@ -1591,7 +1591,6 @@ struct PDFKitView: UIViewRepresentable {
                 }
             }
 
-            pdfView.displaysAnnotations = true
             pdfView.clearSelection()
             pdfView.layoutDocumentView()
             pdfView.setNeedsDisplay()

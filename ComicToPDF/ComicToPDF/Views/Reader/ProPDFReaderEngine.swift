@@ -1718,7 +1718,6 @@ struct ProPDFReaderEngine: View {
 
     /// Repaints PDFView to display new annotation graphics smoothly without thrashing CATiledLayer.
     private func forcePageRedraw(_ pdfView: PDFView, pageIndex: Int) {
-        pdfView.displaysAnnotations = true
         pdfView.layoutDocumentView()
         pdfView.setNeedsDisplay()
         pdfView.documentView?.setNeedsDisplay()
@@ -2008,7 +2007,6 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
 
         // Assign document AFTER display configuration so PDFKit lays out correctly
         pdfView.document = document
-        pdfView.displaysAnnotations = true
         pdfView.autoScales = true
         pdfView.minScaleFactor = 0.25
         pdfView.maxScaleFactor = 8.0
@@ -2081,9 +2079,6 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         if uiView.document != document {
             uiView.document = document
             uiView.autoScales = true
-        }
-        if !uiView.displaysAnnotations {
-            uiView.displaysAnnotations = true
         }
 
         let prefs = EBookPreferences.shared
