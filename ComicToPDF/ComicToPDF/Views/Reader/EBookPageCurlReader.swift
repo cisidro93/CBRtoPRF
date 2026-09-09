@@ -524,7 +524,8 @@ extension EBookPageCurlReader {
             viewControllerBefore viewController: UIViewController
         ) -> UIViewController? {
             guard let contentVC = viewController as? EBookPageContentViewController else { return nil }
-            let prevIndex = contentVC.pageIndex - 1
+            let step = isDualPageMode ? 2 : 1
+            let prevIndex = contentVC.pageIndex - step
             if prevIndex < 0 { return nil }
             return makePageViewController(for: prevIndex)
         }
@@ -534,7 +535,8 @@ extension EBookPageCurlReader {
             viewControllerAfter viewController: UIViewController
         ) -> UIViewController? {
             guard let contentVC = viewController as? EBookPageContentViewController else { return nil }
-            let nextIndex = contentVC.pageIndex + 1
+            let step = isDualPageMode ? 2 : 1
+            let nextIndex = contentVC.pageIndex + step
             if nextIndex >= computedTotalPages { return nil }
             return makePageViewController(for: nextIndex)
         }
@@ -1241,6 +1243,7 @@ extension EBookPageCurlReader {
             let colWidth = max(100.0, (renderWidth / CGFloat(cols)) - gap)
 
             let pagedCSS = """
+                column-count: \(cols) !important;
                 column-width: \(colWidth)px !important;
                 column-gap: \(gap)px !important;
                 column-fill: auto !important;

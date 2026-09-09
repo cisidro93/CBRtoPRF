@@ -119,19 +119,11 @@ struct UnifiedReaderView: View {
             } else {
                 return (.proPDF, "Native vector PDF document detected (%PDF binary signature or .pdf extension). Full text reflow, highlighting, and Apple Pencil active.")
             }
-        } else if needsEPUBComicCheck {
-            return (.checkingEPUB, "EPUB comic/text check in flight.")
-        } else if let isComic = epubComicCheckResult {
-            if isComic && activeEngineOverride != .book {
-                return (.comic, "Fixed-layout/comic EPUB detected from container analysis or high image density.")
-            } else {
-                return (.eBook, "Reflowable text EPUB detected. WebKit dual-page median layout and typography active.")
-            }
         } else if pdf.url.pathExtension.lowercased() == "epub" || pdf.name.lowercased().hasSuffix(".epub") {
             if activeEngineOverride == .comic {
                 return (.comic, "Manual engine override active: comic mode requested for EPUB.")
             } else {
-                return (.eBook, "Standard reflowable EPUB document.")
+                return (.eBook, "Standard reflowable or fixed-layout EPUB document. WebKit dual-page median layout active.")
             }
         } else if pdf.contentType == .book {
             if activeEngineOverride == .comic {

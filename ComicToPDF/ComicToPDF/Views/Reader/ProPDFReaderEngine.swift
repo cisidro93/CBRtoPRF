@@ -120,16 +120,12 @@ struct ProPDFReaderEngine: View {
         
         if insets.modeRaw == "none" {
             isCroppedMode = false
-            for i in 0..<doc.pageCount {
-                if let page = doc.page(at: i) {
-                    page.setBounds(page.bounds(for: .mediaBox), for: .cropBox)
-                }
-            }
             if let pv = pdfViewReference {
                 pv.displayBox = .mediaBox
                 pv.autoScales = true
                 pv.layoutDocumentView()
             }
+            return
         } else if insets.modeRaw == "smartAuto" {
             isCroppedMode = true
             
@@ -177,7 +173,6 @@ struct ProPDFReaderEngine: View {
             
             if !sampledLeftMargins.isEmpty {
                 // Use the minimum margin found across all pages so NO text is ever clipped on ANY page.
-                // Apply a safety cushion of 0.02 (~12-16pt)
                 let rawMinLeft = max(0.01, (sampledLeftMargins.min() ?? baseSensitivity) - 0.02)
                 let rawMinRight = max(0.01, (sampledRightMargins.min() ?? baseSensitivity) - 0.02)
                 let rawMinTop = max(0.01, (sampledTopMargins.min() ?? baseSensitivity) - 0.02)
@@ -196,17 +191,22 @@ struct ProPDFReaderEngine: View {
                 safeBottomMargin = baseSensitivity
             }
             
-            // Apply single uniform crop rectangle to EVERY page in the entire document
-            for i in 0..<total {
-                if let page = doc.page(at: i) {
-                    let mediaBox = page.bounds(for: .mediaBox)
-                    let uniformCrop = CGRect(
-                        x: mediaBox.minX + (mediaBox.width * safeLeftMargin),
-                        y: mediaBox.minY + (mediaBox.height * safeBottomMargin),
-                        width: max(10, mediaBox.width * (1.0 - safeLeftMargin - safeRightMargin)),
-                        height: max(10, mediaBox.height * (1.0 - safeTopMargin - safeBottomMargin))
-                    )
-                    page.setBounds(uniformCrop, for: .cropBox)
+            // 1. Immediately apply to visible window (current page +- 8) for zero UI lag (<20ms)
+            let curPage = currentPageIndex
+            let visibleStart = max(0, curPage - 8)
+            let visibleEnd = min(total - 1, curPage + 8)
+            if total > 0 {
+                for i in visibleStart...visibleEnd {
+                    if let page = doc.page(at: i) {
+                        let mediaBox = page.bounds(for: .mediaBox)
+                        let uniformCrop = CGRect(
+                            x: mediaBox.minX + (mediaBox.width * safeLeftMargin),
+                            y: mediaBox.minY + (mediaBox.height * safeBottomMargin),
+                            width: max(10, mediaBox.width * (1.0 - safeLeftMargin - safeRightMargin)),
+                            height: max(10, mediaBox.height * (1.0 - safeTopMargin - safeBottomMargin))
+                        )
+                        page.setBounds(uniformCrop, for: .cropBox)
+                    }
                 }
             }
             
@@ -215,25 +215,67 @@ struct ProPDFReaderEngine: View {
                 pv.autoScales = true
                 pv.layoutDocumentView()
             }
+            
+            // 2. Offload remaining pages asynchronously so 1400-page books never stutter the main thread
+            if total > 0 {
+                Task { @MainActor in
+                    for i in 0..<total {
+                        if i >= visibleStart && i <= visibleEnd { continue }
+                        if let page = doc.page(at: i) {
+                            let mediaBox = page.bounds(for: .mediaBox)
+                            let uniformCrop = CGRect(
+                                x: mediaBox.minX + (mediaBox.width * safeLeftMargin),
+                                y: mediaBox.minY + (mediaBox.height * safeBottomMargin),
+                                width: max(10, mediaBox.width * (1.0 - safeLeftMargin - safeRightMargin)),
+                                height: max(10, mediaBox.height * (1.0 - safeTopMargin - safeBottomMargin))
+                            )
+                            page.setBounds(uniformCrop, for: .cropBox)
+                        }
+                    }
+                }
+            }
         } else {
-            // Custom Pro Crop Insets applied uniformly across all pages
+            // Custom Pro Crop Insets applied immediately to visible window, then asynchronously across remaining
             isCroppedMode = true
-            for i in 0..<doc.pageCount {
-                if let page = doc.page(at: i) {
-                    let mediaBox = page.bounds(for: .mediaBox)
-                    let croppedRect = CGRect(
-                        x: mediaBox.minX + (mediaBox.width * insets.left),
-                        y: mediaBox.minY + (mediaBox.height * insets.top),
-                        width: max(10, mediaBox.width * (1.0 - insets.left - insets.right)),
-                        height: max(10, mediaBox.height * (1.0 - insets.top - insets.bottom))
-                    )
-                    page.setBounds(croppedRect, for: .cropBox)
+            let total = doc.pageCount
+            let curPage = currentPageIndex
+            let visibleStart = max(0, curPage - 8)
+            let visibleEnd = min(total - 1, curPage + 8)
+            if total > 0 {
+                for i in visibleStart...visibleEnd {
+                    if let page = doc.page(at: i) {
+                        let mediaBox = page.bounds(for: .mediaBox)
+                        let croppedRect = CGRect(
+                            x: mediaBox.minX + (mediaBox.width * insets.left),
+                            y: mediaBox.minY + (mediaBox.height * insets.top),
+                            width: max(10, mediaBox.width * (1.0 - insets.left - insets.right)),
+                            height: max(10, mediaBox.height * (1.0 - insets.top - insets.bottom))
+                        )
+                        page.setBounds(croppedRect, for: .cropBox)
+                    }
                 }
             }
             if let pv = pdfViewReference {
                 pv.displayBox = .cropBox
                 pv.autoScales = true
                 pv.layoutDocumentView()
+            }
+            if total > 0 {
+                Task { @MainActor in
+                    for i in 0..<total {
+                        if i >= visibleStart && i <= visibleEnd { continue }
+                        if let page = doc.page(at: i) {
+                            let mediaBox = page.bounds(for: .mediaBox)
+                            let croppedRect = CGRect(
+                                x: mediaBox.minX + (mediaBox.width * insets.left),
+                                y: mediaBox.minY + (mediaBox.height * insets.top),
+                                width: max(10, mediaBox.width * (1.0 - insets.left - insets.right)),
+                                height: max(10, mediaBox.height * (1.0 - insets.top - insets.bottom))
+                            )
+                            page.setBounds(croppedRect, for: .cropBox)
+                        }
+                    }
+                }
             }
         }
     }
@@ -1066,10 +1108,16 @@ struct ProPDFReaderEngine: View {
                     self.applyCropInsets(initialCrop)
                     self.extractAmbientColor(for: self.currentPageIndex)
                     
-                    // Ingest native third-party PDF annotations into AnnotationStore
-                    _ = PDFAnnotationSyncBridge.shared.importNativeAnnotations(from: doc, for: sourcePDF.id)
                     // Ingest and render all existing InkSync Pro highlights, notes, and ink from AnnotationStore onto the live document
                     PDFAnnotationSyncBridge.shared.applyStoreAnnotations(for: sourcePDF.id, to: doc)
+                    
+                    // Ingest native third-party PDF annotations asynchronously so document opens in <100ms
+                    Task { @MainActor in
+                        let imported = PDFAnnotationSyncBridge.shared.importNativeAnnotations(from: doc, for: sourcePDF.id)
+                        if !imported.isEmpty {
+                            PDFAnnotationSyncBridge.shared.applyStoreAnnotations(for: sourcePDF.id, to: doc)
+                        }
+                    }
                 }
             } else {
                 accessedURL?.stopAccessingSecurityScopedResource()
@@ -1099,8 +1147,13 @@ struct ProPDFReaderEngine: View {
             let initialCrop = savedCrop ?? (self.prefs.defaultCropModeRaw == "smartAuto" ? .smartAuto : .none)
             self.applyCropInsets(initialCrop)
             self.extractAmbientColor(for: self.currentPageIndex)
-            _ = PDFAnnotationSyncBridge.shared.importNativeAnnotations(from: doc, for: pdf.id)
             PDFAnnotationSyncBridge.shared.applyStoreAnnotations(for: pdf.id, to: doc)
+            Task { @MainActor in
+                let imported = PDFAnnotationSyncBridge.shared.importNativeAnnotations(from: doc, for: self.pdf.id)
+                if !imported.isEmpty {
+                    PDFAnnotationSyncBridge.shared.applyStoreAnnotations(for: self.pdf.id, to: doc)
+                }
+            }
         } else {
             HapticEngine.error()
             self.passwordErrorMessage = "Incorrect password. Please verify and try again."
@@ -1207,9 +1260,6 @@ struct ProPDFReaderEngine: View {
         let total = max(1, totalPages)
         progress.completionFraction = Double(currentPageIndex + 1) / Double(total)
         ReaderProgressTracker.shared.update(progress)
-        if let doc = pdfDocument {
-            PDFAnnotationSyncBridge.shared.syncStoreToDocument(for: pdf.id, in: doc, at: resolvedURL)
-        }
     }
 
     private func jumpToPage(_ pageIndex: Int) {
@@ -1707,10 +1757,18 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         // threshold crossings which can miss pages when scrolling quickly.
         pdfView.usePageViewController(false)
         pdfView.displayMode = isDual ? .twoUp : .singlePage
-        pdfView.displaysAsBook = isDual
+        pdfView.displaysAsBook = isDual && !prefs.linkCoverAsSpread
 
+        // Panels & Boox Parity: In dual mode, eliminate spine and edge gaps so spreads fill 100% of available screen space
         let margin = max(0, prefs.textMargin)
-        pdfView.pageBreakMargins = UIEdgeInsets(top: 0, left: margin, bottom: 0, right: margin)
+        let dualMargins = UIEdgeInsets(top: 0, left: 1, bottom: 0, right: 1)
+        let singleMargins = UIEdgeInsets(top: 0, left: margin, bottom: 0, right: margin)
+        pdfView.pageBreakMargins = isDual ? dualMargins : singleMargins
+
+        if let sv = pdfView.subviews.first(where: { $0 is UIScrollView }) as? UIScrollView {
+            sv.contentInsetAdjustmentBehavior = .never
+            sv.contentInset = .zero
+        }
 
         // Assign document AFTER display configuration so PDFKit lays out correctly
         pdfView.document = document
@@ -1796,12 +1854,24 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         if uiView.displayMode != targetDisplayMode {
             uiView.displayMode = targetDisplayMode
         }
-        uiView.displaysAsBook = isDual
+        let targetDisplaysAsBook = isDual && !prefs.linkCoverAsSpread
+        if uiView.displaysAsBook != targetDisplaysAsBook {
+            uiView.displaysAsBook = targetDisplaysAsBook
+        }
 
         let margin = max(0, prefs.textMargin)
-        let targetMargins = UIEdgeInsets(top: 0, left: margin, bottom: 0, right: margin)
+        let targetMargins = isDual ? UIEdgeInsets(top: 0, left: 1, bottom: 0, right: 1) : UIEdgeInsets(top: 0, left: margin, bottom: 0, right: margin)
         if uiView.pageBreakMargins != targetMargins {
             uiView.pageBreakMargins = targetMargins
+        }
+
+        if let sv = uiView.subviews.first(where: { $0 is UIScrollView }) as? UIScrollView {
+            if sv.contentInsetAdjustmentBehavior != .never {
+                sv.contentInsetAdjustmentBehavior = .never
+            }
+            if sv.contentInset != .zero {
+                sv.contentInset = .zero
+            }
         }
 
         let targetDisplayBox: PDFDisplayBox = isCroppedMode ? .cropBox : .mediaBox

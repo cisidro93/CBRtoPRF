@@ -328,8 +328,16 @@ final class ComicImageCache: ObservableObject {
                     return imageExtensions.contains(ext)
                 }.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
                 
-                if sortedEntries.isEmpty {
+                let isEPUB = resolvedURL.pathExtension.lowercased() == "epub" || pdf.name.lowercased().hasSuffix(".epub")
+                if sortedEntries.isEmpty || isEPUB {
                     if let accessed = accessedURL { accessed.stopAccessingSecurityScopedResource() }
+                    if isEPUB {
+                        Logger.shared.log("ComicReaderEngine: EPUB document detected in comic archive loader. Auto-switching to BookReader.", category: "Reader", type: .warning)
+                        await MainActor.run {
+                            NotificationCenter.default.post(name: NSNotification.Name("SwitchToBookReader"), object: nil)
+                        }
+                        return
+                    }
                     let report = DocumentOpenDiagnostics.logFailure(url: resolvedURL, pdf: pdf, error: nil, context: "ComicReaderEngine")
                     await MainActor.run { [weak self] in
                         self?.loadDiagnosticReport = report
