@@ -83,35 +83,12 @@ class ShareViewController: UIViewController {
             }
         }
 
-        // ── Step 2: Multi-Strategy Host App Launch ──
-        // Strategy A: Dynamic NSExtensionContext openURL selector invocation
-        let extOpenSel = NSSelectorFromString("openURL:completionHandler:")
-        if let ext = extensionContext, ext.responds(to: extOpenSel) {
-            let imp = ext.method(for: extOpenSel)
-            typealias ExtOpenMethod = @convention(c) (NSObject, Selector, NSURL, ((Bool) -> Void)?) -> Void
-            let fn = unsafeBitCast(imp, to: ExtOpenMethod.self)
-            fn(ext, extOpenSel, deepLinkURL as NSURL) { [weak self] _ in
+        // ── Step 2: Host App Launch via Official Extension Context API ──
+        if let context = extensionContext {
+            context.open(deepLinkURL) { [weak self] _ in
                 Task { @MainActor in
                     self?.completeHostAppHandover()
                 }
-            }
-        }
-
-        // Strategy B: UIResponder Chain Traversal from window root
-        var responder: UIResponder? = self.view.window?.rootViewController ?? self
-        while let r = responder {
-            let openSelector = NSSelectorFromString("openURL:")
-            if r.responds(to: openSelector) {
-                r.perform(openSelector, with: deepLinkURL)
-                break
-            }
-            responder = r.next
-        }
-
-        // Strategy C: Standard NSExtensionContext.open fallback
-        extensionContext?.open(deepLinkURL) { [weak self] _ in
-            Task { @MainActor in
-                self?.completeHostAppHandover()
             }
         }
 
