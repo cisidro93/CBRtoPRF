@@ -421,31 +421,7 @@ struct EBookReaderView: View {
                     spineItems: meta.spineItems,
                     unzipDir: unzipDir,
                     onNavigate: { chapterIdx, matchText in
-                        if chapterIdx == currentIndex {
-                            // Same chapter: inject window.find() immediately
-                            if let wv = resolveActiveWebView() ?? webViewReference {
-                                let safe = matchText
-                                    .replacingOccurrences(of: "\\", with: "\\\\")
-                                    .replacingOccurrences(of: "'", with: "\\'")
-                                let js = """
-                                (function() {
-                                    window.getSelection()?.removeAllRanges();
-                                    var found = window.find('\(safe)', false, false, true, false, false, false);
-                                    if (!found) { window.find('\(safe)', false, false, false, false, false, false); }
-                                })();
-                                """
-                                wv.evaluateJavaScript(js)
-                            }
-                        } else {
-                            // 1. Navigate to the right chapter
-                            isGoingForward = chapterIdx >= currentIndex
-                            currentIndex = chapterIdx
-                            chapterPage = 0
-                            saveProgress()
-                            // 2. After navigation, inject window.find() to scroll to + highlight match
-                            // The pending match is picked up in .onChange(of: currentIndex)
-                            pendingSearchMatch = matchText
-                        }
+                        handleSearchNavigation(chapterIdx: chapterIdx, matchText: matchText)
                     }
                 )
             }
@@ -457,74 +433,14 @@ struct EBookReaderView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerJumpToPage)) { notification in
-            if let pageIndex = notification.userInfo?["pageIndex"] as? Int, pageIndex >= 0, pageIndex < totalChapters {
-                let fromIndex = currentIndex
-                if abs(pageIndex - fromIndex) > 0 {
-                    ReadingJumpTracker.shared.recordJump(fromPage: fromIndex, toPage: pageIndex) {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                            isGoingForward = fromIndex >= currentIndex
-                            currentIndex = fromIndex
-                            chapterPage = 0
-                            saveProgress()
-                        }
-                    }
-                }
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                    isGoingForward = pageIndex >= currentIndex
-                    currentIndex = pageIndex
-                    chapterPage = 0
-                    saveProgress()
-                }
-            }
+            handleReaderJumpToPage(notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("Reader_JumpToChapterHref"))) { notification in
-            if let href = notification.userInfo?["href"] as? String, !href.isEmpty, let meta = metadata {
-                let cleanTarget = href.lowercased()
-                if let targetIdx = meta.spineItems.firstIndex(where: { $0.href.lowercased().hasSuffix(cleanTarget) }) {
-                    if targetIdx != currentIndex {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                            isGoingForward = targetIdx >= currentIndex
-                            currentIndex = targetIdx
-                            chapterPage = 0
-                            saveProgress()
-                        }
-                    }
-                    if let fragment = notification.userInfo?["fragment"] as? String, !fragment.isEmpty {
-                        Task {
-                            try? await Task.sleep(nanoseconds: 500_000_000)
-                            await MainActor.run {
-                                if let wv = resolveActiveWebView() ?? webViewReference {
-                                    let js = "document.getElementById('\(fragment)')?.scrollIntoView({ behavior: 'smooth', block: 'start' });"
-                                    wv.evaluateJavaScript(js)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            handleJumpToChapterHref(notification)
         }
         // Gap B: After chapter navigation, inject window.find() into the live WebView
         .onChange(of: currentIndex) { _, _ in
-            guard let match = pendingSearchMatch, !match.isEmpty else { return }
-            Task {
-                try? await Task.sleep(nanoseconds: 600_000_000) // 0.6s
-                await MainActor.run {
-                    if let wv = resolveActiveWebView() ?? webViewReference {
-                        let safe = match
-                            .replacingOccurrences(of: "\\", with: "\\\\")
-                            .replacingOccurrences(of: "'", with: "\\'")
-                        let js = """
-                        (function() {
-                            window.getSelection()?.removeAllRanges();
-                            var found = window.find('\(safe)', false, false, true, false, false, false);
-                            if (!found) { window.find('\(safe)', false, false, false, false, false, false); }
-                        })();
-                        """
-                        wv.evaluateJavaScript(js)
-                    }
-                    pendingSearchMatch = nil
-                }
-            }
+            handleCurrentIndexChanged()
         }
     }
 
@@ -952,6 +868,96 @@ struct EBookReaderView: View {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { currentIndex -= 1 }
         saveProgress()
         trackEBookProgress()
+    }
+
+    // MARK: - Navigation & Search Handlers
+    private func handleSearchNavigation(chapterIdx: Int, matchText: String) {
+        if chapterIdx == currentIndex {
+            if let wv = resolveActiveWebView() ?? webViewReference {
+                let safe = matchText
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                let js = """
+                (function() {
+                    window.getSelection()?.removeAllRanges();
+                    var found = window.find('\(safe)', false, false, true, false, false, false);
+                    if (!found) { window.find('\(safe)', false, false, false, false, false, false); }
+                })();
+                """
+                wv.evaluateJavaScript(js, completionHandler: nil)
+            }
+        } else {
+            isGoingForward = chapterIdx >= currentIndex
+            currentIndex = chapterIdx
+            chapterPage = 0
+            saveProgress()
+            pendingSearchMatch = matchText
+        }
+    }
+
+    private func handleReaderJumpToPage(_ notification: Notification) {
+        guard let pageIndex = notification.userInfo?["pageIndex"] as? Int, pageIndex >= 0, pageIndex < totalChapters else { return }
+        let fromIndex = currentIndex
+        if abs(pageIndex - fromIndex) > 0 {
+            ReadingJumpTracker.shared.recordJump(fromPage: fromIndex, toPage: pageIndex) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    isGoingForward = fromIndex >= currentIndex
+                    currentIndex = fromIndex
+                    chapterPage = 0
+                    saveProgress()
+                }
+            }
+        }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            isGoingForward = pageIndex >= currentIndex
+            currentIndex = pageIndex
+            chapterPage = 0
+            saveProgress()
+        }
+    }
+
+    private func handleJumpToChapterHref(_ notification: Notification) {
+        guard let href = notification.userInfo?["href"] as? String, !href.isEmpty, let meta = metadata else { return }
+        let cleanTarget = href.lowercased()
+        guard let targetIdx = meta.spineItems.firstIndex(where: { $0.href.lowercased().hasSuffix(cleanTarget) }) else { return }
+        if targetIdx != currentIndex {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                isGoingForward = targetIdx >= currentIndex
+                currentIndex = targetIdx
+                chapterPage = 0
+                saveProgress()
+            }
+        }
+        if let fragment = notification.userInfo?["fragment"] as? String, !fragment.isEmpty {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if let wv = resolveActiveWebView() ?? webViewReference {
+                    let js = "document.getElementById('\(fragment)')?.scrollIntoView({ behavior: 'smooth', block: 'start' });"
+                    wv.evaluateJavaScript(js, completionHandler: nil)
+                }
+            }
+        }
+    }
+
+    private func handleCurrentIndexChanged() {
+        guard let match = pendingSearchMatch, !match.isEmpty else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if let wv = resolveActiveWebView() ?? webViewReference {
+                let safe = match
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                let js = """
+                (function() {
+                    window.getSelection()?.removeAllRanges();
+                    var found = window.find('\(safe)', false, false, true, false, false, false);
+                    if (!found) { window.find('\(safe)', false, false, false, false, false, false); }
+                })();
+                """
+                wv.evaluateJavaScript(js, completionHandler: nil)
+            }
+            pendingSearchMatch = nil
+        }
     }
     
     nonisolated private static func unzipBook(from source: URL, to destination: URL) throws {
