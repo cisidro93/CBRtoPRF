@@ -1,0 +1,130 @@
+[
+  {
+    "buildNumber": "3329",
+    "commitSHA": "f1488b25",
+    "version": "1.0.1",
+    "releaseDate": "September 2026",
+    "title": "Automated What's New & Product Bible Modernization",
+    "subtitle": "Live Release Updates, 4-Titan Study Suite & Instant Highlighting",
+    "features": [
+      {
+        "icon": "sparkles",
+        "colorHex": "orange",
+        "title": "Dynamic What's New System",
+        "description": "Release notes update automatically on each build with built-in version history browsing and live build verification.",
+        "category": "Update"
+      },
+      {
+        "icon": "sparkles",
+        "colorHex": "orange",
+        "title": "Cornell 3-Zone Note Paper",
+        "description": "Dynamic Cues and Summary fields are permanently persisted to SwiftData with debounced autosave and frosted-glass recitation curtain.",
+        "category": "Update"
+      },
+      {
+        "icon": "sparkles",
+        "colorHex": "orange",
+        "title": "Global Active Study Suite",
+        "description": "New 4th navigation hub in the Notebooks shelf unifying Cornell notes, Mortimer Adler markers, and spaced repetition review.",
+        "category": "Update"
+      },
+      {
+        "icon": "sparkles",
+        "colorHex": "orange",
+        "title": "Instant Highlighting Engine",
+        "description": "Single-annotation ISO quad-point geometry with synchronous tiled layer invalidation rendering highlights at 0ms visual delay.",
+        "category": "Update"
+      },
+      {
+        "icon": "sparkles",
+        "colorHex": "orange",
+        "title": "In-Book Highlights Drawer",
+        "description": "Dedicated Highlights tab inside PDFOutlineDrawer with color pill badges, timestamps, and 1-tap jump navigation.",
+        "category": "Update"
+      },
+      {
+        "icon": "sparkles",
+        "colorHex": "orange",
+        "title": "SwiftData Flashcard Bridge",
+        "description": "Highlights and passage citations automatically convert into active recall flashcards with Bear tags and SM-2 scheduling.",
+        "category": "Update"
+      }
+    ]
+  },
+  {
+    "buildNumber": "3326",
+    "commitSHA": "f5bef99a",
+    "version": "1.0.1",
+    "releaseDate": "September 2026",
+    "title": "0ms Highlighting & Highlights Tab",
+    "subtitle": "Instantaneous visual rendering across PDF and EPUB",
+    "features": [
+      {
+        "icon": "highlighter",
+        "colorHex": "yellow",
+        "title": "Instant PDF Vector Highlighting",
+        "description": "Single-annotation ISO quad-point geometry with direct alpha and synchronous tiled layer invalidation.",
+        "category": "PDFKit"
+      },
+      {
+        "icon": "list.bullet.rectangle.portrait",
+        "colorHex": "orange",
+        "title": "In-Book Highlights Drawer",
+        "description": "Dedicated Highlights tab in PDFOutlineDrawer with live color badges, page numbers, and 1-tap jump.",
+        "category": "Reader"
+      },
+      {
+        "icon": "book.pages",
+        "colorHex": "blue",
+        "title": "EPUB 3D Curl Live Invalidation",
+        "description": "Page snapshots re-rasterize instantly when text is highlighted, eliminating page-turn delays.",
+        "category": "EPUB"
+      },
+      {
+        "icon": "square.and.pencil",
+        "colorHex": "purple",
+        "title": "External Study Notebook Sync",
+        "description": "Highlights created in documents automatically synchronize to the external study drawer when outside the reader.",
+        "category": "Sync"
+      }
+    ]
+  },
+  {
+    "buildNumber": "3324",
+    "commitSHA": "bc82d8b2",
+    "version": "1.0.1",
+    "releaseDate": "September 2026",
+    "title": "The 4-Titan Digital Reader Suite",
+    "subtitle": "Features benchmarked against Kindle, Panels, KyBook 3 & Boox",
+    "features": [
+      {
+        "icon": "bolt.horizontal.fill",
+        "colorHex": "orange",
+        "title": "KyBook 3 RSVP Speed Reader",
+        "description": "Optimal Recognition Point (ORP) fixation, adaptive punctuation pauses, and 150–850 WPM chunking.",
+        "category": "Reader"
+      },
+      {
+        "icon": "crop",
+        "colorHex": "blue",
+        "title": "Boox NeoReader Alternating Crop",
+        "description": "Alternating inner gutter offset compensation for bound books and single-tap column stepping.",
+        "category": "PDFKit"
+      },
+      {
+        "icon": "lock.fill",
+        "colorHex": "green",
+        "title": "Panels Persistent Lock Zoom",
+        "description": "Custom zoom magnification level locks across page transitions until manually reset.",
+        "category": "Zoom"
+      },
+      {
+        "icon": "arrow.counterclockwise.circle.fill",
+        "colorHex": "purple",
+        "title": "Kindle Anchor Jump System",
+        "description": "Interactive toast overlay allows 1-tap jumping between past reading anchors and current position.",
+        "category": "Navigation"
+      }
+    ]
+  }
+]
