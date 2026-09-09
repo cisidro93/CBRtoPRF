@@ -81,8 +81,30 @@ struct EBookReaderView: View {
     private var fractionKey: String { "ebook_fraction_\(fileURL.lastPathComponent.hashValue)" }
 
     private var rsvpContentText: String {
-        if let raw = metadata?.spineItems[safe: currentIndex]?.content, !raw.isEmpty {
-            return raw
+        guard let dir = unzipDir,
+              let item = metadata?.spineItems[safe: currentIndex] else {
+            return currentChapterTitle ?? title
+        }
+        var chapterFileURL = dir.appendingPathComponent(item.href)
+        if !FileManager.default.fileExists(atPath: chapterFileURL.path),
+           let decoded = item.href.removingPercentEncoding {
+            chapterFileURL = dir.appendingPathComponent(decoded)
+        }
+        if let rawHTML = (try? String(contentsOf: chapterFileURL, encoding: .utf8))
+                      ?? (try? String(contentsOf: chapterFileURL, encoding: .isoLatin1)) {
+            let plain = rawHTML
+                .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+                .replacingOccurrences(of: "&nbsp;", with: " ")
+                .replacingOccurrences(of: "&amp;",  with: "&")
+                .replacingOccurrences(of: "&lt;",   with: "<")
+                .replacingOccurrences(of: "&gt;",   with: ">")
+                .replacingOccurrences(of: "&quot;", with: "\"")
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            if !plain.isEmpty {
+                return plain
+            }
         }
         return currentChapterTitle ?? title
     }
