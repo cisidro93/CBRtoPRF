@@ -32,18 +32,21 @@ struct PDFOutlineDrawer: View {
     @State private var searchQuery: String = ""
     @State private var outlineTree: [OutlineNode] = []
     @State private var bookmarks: [Annotation] = []
+    @ObservedObject private var annotationStore = AnnotationStore.shared
     
     @Environment(\.colorScheme) private var colorScheme
     
     enum DrawerTab: String, CaseIterable, Identifiable {
-        case contents  = "Contents"
-        case bookmarks = "Bookmarks"
+        case contents    = "Contents"
+        case bookmarks   = "Bookmarks"
+        case annotations = "Highlights"
         
         var id: String { rawValue }
         var iconName: String {
             switch self {
-            case .contents:  return "list.bullet.indent"
-            case .bookmarks: return "bookmark.fill"
+            case .contents:    return "list.bullet.indent"
+            case .bookmarks:   return "bookmark.fill"
+            case .annotations: return "highlighter"
             }
         }
     }
@@ -78,6 +81,8 @@ struct PDFOutlineDrawer: View {
                         outlineContentView
                     case .bookmarks:
                         bookmarksContentView
+                    case .annotations:
+                        highlightsContentView
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -293,6 +298,90 @@ struct PDFOutlineDrawer: View {
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
                 }
+            }
+        }
+    }
+
+    // MARK: - Highlights Content View
+
+    private var highlightsContentView: some View {
+        let allAnnotations = annotationStore.annotations(for: pdf.id)
+            .filter { $0.kind == .highlight || $0.kind == .underline || $0.kind == .strikeOut }
+        let filtered = allAnnotations.filter { ann in
+            if searchQuery.isEmpty { return true }
+            return (ann.selectedText?.localizedCaseInsensitiveContains(searchQuery) ?? false) ||
+                   (ann.noteText?.localizedCaseInsensitiveContains(searchQuery) ?? false) ||
+                   "\(ann.pageIndex + 1)".contains(searchQuery)
+        }
+        
+        return Group {
+            if filtered.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "highlighter")
+                        .font(.system(size: 36))
+                        .foregroundColor(.inkTextTertiary)
+                    Text("No Highlights Found")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundColor(.inkTextSecondary)
+                    Text("Highlights and notes created in the reader appear here.")
+                        .font(.system(size: 12))
+                        .foregroundColor(.inkTextTertiary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(filtered) { ann in
+                        Button {
+                            HapticEngine.light()
+                            onJumpToPage(ann.pageIndex)
+                            onDismiss()
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .fill(Color(hex: ann.colorHex ?? "#FFD600"))
+                                        .frame(width: 8, height: 8)
+                                    Text("Page \(ann.pageIndex + 1)")
+                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                        .foregroundColor(.inkViolet)
+                                    Spacer()
+                                    Text(ann.createdAt.formatted(date: .abbreviated, time: .shortened))
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.inkTextTertiary)
+                                }
+                                
+                                if let text = ann.selectedText, !text.isEmpty {
+                                    Text(text)
+                                        .font(.system(size: 13, weight: .medium, design: .serif))
+                                        .foregroundColor(.inkTextPrimary)
+                                        .lineLimit(3)
+                                        .multilineTextAlignment(.leading)
+                                }
+                                
+                                if let note = ann.noteText, !note.isEmpty {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "note.text")
+                                            .font(.system(size: 10))
+                                        Text(note)
+                                            .font(.system(size: 11))
+                                    }
+                                    .foregroundColor(.inkGreen)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .listRowBackground(Color.inkSurface)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                AnnotationStore.shared.delete(id: ann.id, pdfID: pdf.id)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
             }
         }
     }

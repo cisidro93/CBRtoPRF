@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 import SwiftData
 import CryptoKit
 import PencilKit
@@ -849,6 +849,10 @@ struct StudyNotebookView: View {
         var resolvedBookUUID = UUID()
         if let actualUUID = UUID(uuidString: bookID) {
             resolvedBookUUID = actualUUID
+            let nbDesc = FetchDescriptor<SDNotebook>(predicate: #Predicate { $0.id == actualUUID })
+            if let nb = try? modelContext.fetch(nbDesc).first, let linked = nb.linkedBookID {
+                resolvedBookUUID = linked
+            }
         } else {
             let hash = Insecure.MD5.hash(data: Data(bookID.utf8))
             resolvedBookUUID = hash.withUnsafeBytes { ptr -> UUID in
@@ -906,12 +910,12 @@ struct StudyNotebookView: View {
                 createdAt: Date()
             )
             newNote.kindRaw = "note"
-             modelContext.insert(newNote)
-             try? modelContext.save()
-             self.activeNoteAnnotation = newNote
-             self.localNotes = ""
-             Logger.shared.log("New note created, inserted and saved for '\(bookTitle)'", category: "Notebook", type: .success)
-         }
+            modelContext.insert(newNote)
+            try? modelContext.save()
+            self.activeNoteAnnotation = newNote
+            self.localNotes = ""
+            Logger.shared.log("New note created, inserted and saved for '\(bookTitle)'", category: "Notebook", type: .success)
+        }
         
         // Fetch paper style from SDNotebook if it exists
         if let nb = getOrCreateNotebook() {
@@ -929,6 +933,28 @@ struct StudyNotebookView: View {
             Logger.shared.log("Highlights fetch failed for '\(bookTitle)'", category: "Notebook", type: .warning)
         }
         
+        // Auto-sync fallback from AnnotationStore
+        let storeAnns = AnnotationStore.shared.annotations(for: targetPDFID)
+            .filter { $0.kind == .highlight || $0.kind == .underline || $0.kind == .strikeOut }
+        if !storeAnns.isEmpty {
+            var didImport = false
+            for ann in storeAnns {
+                let annID = ann.id
+                let checkDesc = FetchDescriptor<SDAnnotation>(predicate: #Predicate { $0.id == annID })
+                if (try? modelContext.fetch(checkDesc).first) == nil {
+                    let sd = SDAnnotation(from: ann)
+                    modelContext.insert(sd)
+                    didImport = true
+                }
+            }
+            if didImport {
+                try? modelContext.save()
+                if let refreshed = try? modelContext.fetch(hDescriptor) {
+                    self.bookHighlights = refreshed.sorted { $0.createdAt > $1.createdAt }
+                }
+            }
+        }
+        
         // Fetch and resolve the SDConvertedPDF for page preview generation
         if let allBooks = try? modelContext.fetch(FetchDescriptor<SDConvertedPDF>()),
            let book = allBooks.first(where: { $0.id == targetPDFID }) {
@@ -943,6 +969,10 @@ struct StudyNotebookView: View {
         var targetPDFID = UUID()
         if let actualUUID = UUID(uuidString: bookID) {
             targetPDFID = actualUUID
+            let nbDesc = FetchDescriptor<SDNotebook>(predicate: #Predicate { $0.id == actualUUID })
+            if let nb = try? modelContext.fetch(nbDesc).first, let linked = nb.linkedBookID {
+                targetPDFID = linked
+            }
         }
         let hDescriptor = FetchDescriptor<SDAnnotation>(predicate: #Predicate { ($0.kindRaw == "highlight" || $0.kindRaw == "underline" || $0.kindRaw == "strikeOut") && $0.pdfID == targetPDFID })
         if let h = try? modelContext.fetch(hDescriptor) {

@@ -1133,8 +1133,12 @@ extension EBookPageCurlReader {
         private func takePageSnapshot(for pageIndex: Int) {
             guard let wv = primaryWebView else { return }
             wv.takeSnapshot(with: nil) { [weak self] image, _ in
-                if let img = image {
-                    self?.pageSnapshots[pageIndex] = img
+                guard let self = self, let img = image else { return }
+                self.pageSnapshots[pageIndex] = img
+                if let vcs = self.pageViewController?.viewControllers as? [EBookPageContentViewController] {
+                    for vc in vcs where vc.pageIndex == pageIndex {
+                        vc.updateSnapshot(img)
+                    }
                 }
             }
         }

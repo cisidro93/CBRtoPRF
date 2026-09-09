@@ -372,6 +372,7 @@ struct ProPDFReaderEngine: View {
             // filter from a previous session cannot corrupt page rendering appearance.
             activeFilterPreset = .original
             isReflowMode = prefs.pdfReflowMode
+            AnnotationStore.shared.initialize(with: modelContext)
             loadPDFDocument()
         }
         .onDisappear {
@@ -1575,16 +1576,15 @@ struct ProPDFReaderEngine: View {
                 page.displaysAnnotations = true
                 let validRects = snapshot.lines.map(\.bounds).filter { $0 != .zero && $0.width > 2 && $0.height > 2 }
                 if !validRects.isEmpty {
-                    for lineRect in validRects {
-                        let ann = PDFAnnotation(bounds: lineRect, forType: nativeType, withProperties: nil)
-                        ann.userName = annotationID.uuidString
-                        ann.color = highlightColor
-                        ann.contents = text
-                        ann.shouldDisplay = true
-                        ann.shouldPrint = true
-                        ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: lineRect)
-                        page.addAnnotation(ann)
-                    }
+                    let unionBox = PDFHighlightGeometryHelper.unionBounds(for: validRects)
+                    let ann = PDFAnnotation(bounds: unionBox, forType: nativeType, withProperties: nil)
+                    ann.userName = annotationID.uuidString
+                    ann.color = highlightColor
+                    ann.contents = text
+                    ann.shouldDisplay = true
+                    ann.shouldPrint = true
+                    ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects)
+                    page.addAnnotation(ann)
                     didAddNative = true
                 }
             }
@@ -1612,16 +1612,14 @@ struct ProPDFReaderEngine: View {
                         height: Double(unionBox.height / pageBounds.height)
                     )
                 }
-                for lineRect in validRects {
-                    let ann = PDFAnnotation(bounds: lineRect, forType: nativeType, withProperties: nil)
-                    ann.userName = annotationID.uuidString
-                    ann.color = highlightColor
-                    ann.contents = text
-                    ann.shouldDisplay = true
-                    ann.shouldPrint = true
-                    ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: lineRect)
-                    page.addAnnotation(ann)
-                }
+                let ann = PDFAnnotation(bounds: unionBox, forType: nativeType, withProperties: nil)
+                ann.userName = annotationID.uuidString
+                ann.color = highlightColor
+                ann.contents = text
+                ann.shouldDisplay = true
+                ann.shouldPrint = true
+                ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects)
+                page.addAnnotation(ann)
                 didAddNative = true
             }
         }
@@ -1646,16 +1644,14 @@ struct ProPDFReaderEngine: View {
                         height: Double(unionBox.height / pageBounds.height)
                     )
                 }
-                for lineRect in validRects {
-                    let ann = PDFAnnotation(bounds: lineRect, forType: nativeType, withProperties: nil)
-                    ann.userName = annotationID.uuidString
-                    ann.color = highlightColor
-                    ann.contents = text
-                    ann.shouldDisplay = true
-                    ann.shouldPrint = true
-                    ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: lineRect)
-                    page.addAnnotation(ann)
-                }
+                let ann = PDFAnnotation(bounds: unionBox, forType: nativeType, withProperties: nil)
+                ann.userName = annotationID.uuidString
+                ann.color = highlightColor
+                ann.contents = text
+                ann.shouldDisplay = true
+                ann.shouldPrint = true
+                ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects)
+                page.addAnnotation(ann)
                 didAddNative = true
                 break
             }
@@ -1690,7 +1686,7 @@ struct ProPDFReaderEngine: View {
             forcePageRedraw(pv, pageIndex: targetPageIndex)
         }
 
-        // ── Persist to AnnotationStore and sync to disk ───────────────────────────
+        // ── Persist to AnnotationStore and sync to SwiftData ─────────────────────
         let highlight = Annotation(
             id: annotationID,
             pdfID: pdf.id,
@@ -1704,6 +1700,9 @@ struct ProPDFReaderEngine: View {
             bounds: savedBounds
         )
         AnnotationStore.shared.add(highlight)
+        let sdAnnotation = SDAnnotation(from: highlight)
+        modelContext.insert(sdAnnotation)
+        try? modelContext.save()
         if let doc = activeDoc {
             PDFAnnotationSyncBridge.shared.scheduleDebouncedDiskSync(for: pdf.id, in: doc, at: resolvedURL)
         }
@@ -1718,6 +1717,10 @@ struct ProPDFReaderEngine: View {
 
     /// Repaints PDFView to display new annotation graphics smoothly without thrashing CATiledLayer.
     private func forcePageRedraw(_ pdfView: PDFView, pageIndex: Int) {
+        if let page = pdfView.document?.page(at: pageIndex) {
+            page.displaysAnnotations = true
+        }
+        pdfView.setNeedsDisplay(pdfView.bounds)
         pdfView.layoutDocumentView()
         pdfView.setNeedsDisplay()
         pdfView.documentView?.setNeedsDisplay()
@@ -1747,6 +1750,9 @@ struct ProPDFReaderEngine: View {
             noteText: note
         )
         AnnotationStore.shared.add(noteAnn)
+        let sdAnnotation = SDAnnotation(from: noteAnn)
+        modelContext.insert(sdAnnotation)
+        try? modelContext.save()
         if let doc = pdfDocument {
             PDFAnnotationSyncBridge.shared.scheduleDebouncedDiskSync(for: pdf.id, in: doc, at: resolvedURL)
         }
@@ -1766,6 +1772,9 @@ struct ProPDFReaderEngine: View {
         )
         ann.marginaliaSymbolRaw = symbol
         AnnotationStore.shared.add(ann)
+        let sdAnnotation = SDAnnotation(from: ann)
+        modelContext.insert(sdAnnotation)
+        try? modelContext.save()
         if let doc = pdfDocument {
             PDFAnnotationSyncBridge.shared.scheduleDebouncedDiskSync(for: pdf.id, in: doc, at: resolvedURL)
         }
