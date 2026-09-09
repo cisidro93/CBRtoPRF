@@ -149,10 +149,7 @@ struct EBookReaderView: View {
                                         saveHighlightFromDirectDOM(id: hId, text: selectedText, colorHex: colorHex)
                                     },
                                     onHighlightTapped: { tappedText in
-                                        guard let p = pdf ?? conversionManager.convertedPDFs.first(where: { $0.url.lastPathComponent == fileURL.lastPathComponent }) else { return }
-                                        let storeAnns = AnnotationStore.shared.annotations(for: p.id)
-                                        if let match = storeAnns.first(where: { $0.id.uuidString == tappedText || ($0.selectedText ?? "").contains(tappedText) || tappedText.contains($0.selectedText ?? "") }),
-                                           let sdMatch = try? modelContext.fetch(FetchDescriptor<SDAnnotation>(predicate: #Predicate { $0.id == match.id })).first {
+                                        if let sdMatch = findMatchingAnnotation(tappedText: tappedText) {
                                             withAnimation(.easeInOut(duration: 0.18)) {
                                                 activeHighlightToEdit = sdMatch
                                             }
@@ -1239,6 +1236,20 @@ struct EBookReaderView: View {
         modelContext.insert(sdAnnotation)
         try? modelContext.save()
         HapticEngine.selection()
+    }
+
+    private func findMatchingAnnotation(tappedText: String) -> SDAnnotation? {
+        guard let p = pdf ?? conversionManager.convertedPDFs.first(where: { $0.url.lastPathComponent == fileURL.lastPathComponent }) else { return nil }
+        let storeAnns = AnnotationStore.shared.annotations(for: p.id)
+        guard let match = storeAnns.first(where: { ann in
+            if ann.id.uuidString == tappedText { return true }
+            guard let text = ann.selectedText, !text.isEmpty else { return false }
+            return text.contains(tappedText) || tappedText.contains(text)
+        }) else { return nil }
+
+        let matchID = match.id
+        let descriptor = FetchDescriptor<SDAnnotation>(predicate: #Predicate { $0.id == matchID })
+        return try? modelContext.fetch(descriptor).first
     }
 
     private func applyHighlight(text: String, colorHex: String, note: String? = nil, symbol: String? = nil, style: AnnotationMarkupStyle = .highlight) {
