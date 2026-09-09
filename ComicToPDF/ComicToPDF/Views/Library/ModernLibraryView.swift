@@ -1066,7 +1066,7 @@ struct ModernLibraryView: View {
                         Text("Metadata Review")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(Theme.text)
-                        Text("Identify your series to activate Character Maps.")
+                        Text("Identify your series to organize metadata and covers.")
                             .font(.system(size: 11))
                             .foregroundColor(Theme.textSecondary)
                     }

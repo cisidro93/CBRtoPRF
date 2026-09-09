@@ -23,7 +23,7 @@ struct MetadataInboxView: View {
                     Text("All Series Identified!")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundColor(Theme.text)
-                    Text("Every folder in your library is matched to metadata. Character maps are ready to use in the reader.")
+                    Text("Every folder in your library is matched to metadata. Full series metadata is ready in your library.")
                         .font(.system(size: 14))
                         .foregroundColor(Theme.textSecondary)
                         .multilineTextAlignment(.center)

@@ -26,7 +26,6 @@ struct ReaderChrome: View {
     var onSettingsToggle: () -> Void
     var onTOCToggle: (() -> Void)? = nil
     var onAnnotationsToggle: (() -> Void)? = nil
-    var onCharacterMapToggle: (() -> Void)? = nil
     var onSearchToggle: (() -> Void)? = nil
     var isDialogueLensEnabled: Bool = false
     var onDialogueLensToggle: (() -> Void)? = nil
@@ -70,11 +69,6 @@ struct ReaderChrome: View {
     // Active reading session start time
     var sessionStartTime: Date? = nil
 
-    // Phase 3: Live Reading Room
-    var isInRoom: Bool = false
-    var roomPeerCount: Int = 0
-    var onRoomToggle: (() -> Void)? = nil
-
     // Phase 4A: Swipe-down-to-dismiss
     var onSwipeDown: (() -> Void)? = nil
 
@@ -91,7 +85,6 @@ struct ReaderChrome: View {
         onSettingsToggle: @escaping () -> Void,
         onTOCToggle: (() -> Void)? = nil,
         onAnnotationsToggle: (() -> Void)? = nil,
-        onCharacterMapToggle: (() -> Void)? = nil,
         onSearchToggle: (() -> Void)? = nil,
         isDialogueLensEnabled: Bool = false,
         onDialogueLensToggle: (() -> Void)? = nil,
@@ -117,9 +110,6 @@ struct ReaderChrome: View {
         isSettingsActive: Bool = false,
         currentModeLabel: String? = nil,
         ambientColor: Color = .clear,
-        isInRoom: Bool = false,
-        roomPeerCount: Int = 0,
-        onRoomToggle: (() -> Void)? = nil,
         sessionStartTime: Date? = nil,
         onSwipeDown: (() -> Void)? = nil
     ) {
@@ -132,7 +122,6 @@ struct ReaderChrome: View {
         self.onSettingsToggle = onSettingsToggle
         self.onTOCToggle = onTOCToggle
         self.onAnnotationsToggle = onAnnotationsToggle
-        self.onCharacterMapToggle = onCharacterMapToggle
         self.onSearchToggle = onSearchToggle
         self.isDialogueLensEnabled = isDialogueLensEnabled
         self.onDialogueLensToggle = onDialogueLensToggle
@@ -158,9 +147,6 @@ struct ReaderChrome: View {
         self.isSettingsActive = isSettingsActive
         self.currentModeLabel = currentModeLabel
         self.ambientColor = ambientColor
-        self.isInRoom = isInRoom
-        self.roomPeerCount = roomPeerCount
-        self.onRoomToggle = onRoomToggle
         self.sessionStartTime = sessionStartTime
         self.onSwipeDown = onSwipeDown
     }
@@ -251,15 +237,6 @@ struct ReaderChrome: View {
 
                     // Overflow Menu
                     Menu {
-                        if let onRoomToggle {
-                            Button(action: onRoomToggle) {
-                                Label(
-                                    isInRoom ? "Leave Reading Room (\(roomPeerCount))" : "Join Reading Room",
-                                    systemImage: isInRoom ? "person.2.wave.2.fill" : "person.2.wave.2"
-                                )
-                            }
-                        }
-
                         if let onEnhance = onEnhanceToggle {
                             Button(action: onEnhance) {
                                 Label("AI Summary & Insights", systemImage: "wand.and.stars")
@@ -295,13 +272,6 @@ struct ReaderChrome: View {
                                 }
                             }
                         }
-
-                        if let onCharacterMap = onCharacterMapToggle {
-                            Divider()
-                            Button(action: onCharacterMap) {
-                                Label("Character Map & Deep Study", systemImage: "square.stack.3d.up.badge.a")
-                            }
-                        }
                     } label: {
                         chromeButton(
                             icon: "ellipsis.circle",
@@ -313,17 +283,6 @@ struct ReaderChrome: View {
                     }
                 } else {
                     // iPad Regular cluster (full row of quick tools)
-                    if let onRoomToggle {
-                        chromeButton(
-                            icon: isInRoom ? "person.2.wave.2.fill" : "person.2.wave.2",
-                            label: "Reading Room",
-                            active: isInRoom,
-                            activeColor: Color(hex: "#4ECDC4"),
-                            badgeText: (isInRoom && roomPeerCount > 0) ? "\(roomPeerCount)" : nil,
-                            action: onRoomToggle
-                        )
-                    }
-
                     if onEnhanceToggle != nil {
                         chromeButton(
                             icon: "wand.and.stars",
@@ -414,16 +373,6 @@ struct ReaderChrome: View {
                             active: false,
                             activeColor: .white,
                             action: onSearch
-                        )
-                    }
-
-                    if let onCharacterMap = onCharacterMapToggle {
-                        chromeButton(
-                            icon: "square.stack.3d.up.badge.a",
-                            label: "Character Map & Study",
-                            active: false,
-                            activeColor: .white,
-                            action: onCharacterMap
                         )
                     }
 
@@ -675,12 +624,6 @@ struct ReaderChrome: View {
                         barButton(icon: "pencil.and.outline", label: "Pencil & Annotations", tint: .primary) {
                             Haptics.shared.playImpact(style: .light)
                             onAnnotations()
-                        }
-                    }
-                    if let onCharacterMap = onCharacterMapToggle {
-                        barButton(icon: "square.stack.3d.up.badge.a", label: "Character Map & Study", tint: .primary) {
-                            Haptics.shared.playImpact(style: .light)
-                            onCharacterMap()
                         }
                     }
                 }

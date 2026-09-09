@@ -38,7 +38,6 @@ struct ProPDFReaderEngine: View {
     @Environment(\.modelContext) private var modelContext
     @FocusState private var isReaderFocused: Bool
     @StateObject private var velocityEngine = ReaderVelocityEngine()
-    @StateObject private var readingRoom = ReadingRoomSession()
     // ✅ Fix: Inject AppSettingsManager so we can pass pencilOnlyDrawing to PageCanvasOverlay,
     // preventing a silent fatal crash from a missing @EnvironmentObject in PKCanvasRepresentation.
     @EnvironmentObject private var settingsManager: AppSettingsManager
@@ -273,14 +272,6 @@ struct ProPDFReaderEngine: View {
             readerChromeView
             filterHUDOverlay
 
-            if readingRoom.isHosting {
-                ReadingRoomOverlay(
-                    session: readingRoom,
-                    currentPage: currentPageIndex,
-                    totalPages: max(1, totalPages)
-                )
-            }
-
             if !chromeVisible && selectedTextForHUD == nil {
                 KindleProgressFooterView(
                     currentPage: currentPageIndex + 1,
@@ -327,7 +318,6 @@ struct ProPDFReaderEngine: View {
             ambientColorTask?.cancel()
             accessedSecurityScopedURL?.stopAccessingSecurityScopedResource()
             accessedSecurityScopedURL = nil
-            readingRoom.stop()
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerJumpToPage)) { notification in
             if let pageIndex = notification.userInfo?["pageIndex"] as? Int, pageIndex >= 0, pageIndex < totalPages {
@@ -969,15 +959,6 @@ struct ProPDFReaderEngine: View {
             },
             isSettingsActive: showingSettings,
             ambientColor: ambientPageColor,
-            isInRoom: readingRoom.isHosting,
-            roomPeerCount: readingRoom.peers.count,
-            onRoomToggle: {
-                if readingRoom.isHosting {
-                    readingRoom.stop()
-                } else {
-                    readingRoom.startHosting(bookID: pdf.id.uuidString)
-                }
-            },
             sessionStartTime: sessionStartTime,
             onSwipeDown: {
                 saveReadingProgress()
@@ -1242,9 +1223,6 @@ struct ProPDFReaderEngine: View {
             }
             let remaining = max(0, totalPages - (clamped + 1))
             velocityEngine.recordPageTurn(remainingPages: remaining)
-            if readingRoom.isHosting {
-                readingRoom.broadcastPage(clamped, totalPages: max(1, totalPages))
-            }
         }
         // Only update the SwiftUI binding. updateUIView() owns the single
         // authoritative call to pdfView.go(to:) via the isNavigatingProgrammatically
@@ -1267,9 +1245,6 @@ struct ProPDFReaderEngine: View {
                 // we never need to manually compute +1 or +2; PDFKit knows.
                 pdfView.goToNextPage(nil)
                 velocityEngine.recordPageTurn(remainingPages: remaining)
-                if readingRoom.isHosting {
-                    readingRoom.broadcastPage(currentPageIndex, totalPages: max(1, totalPages))
-                }
             } else {
                 attemptPDFSeriesContinuation()
             }
@@ -1277,9 +1252,6 @@ struct ProPDFReaderEngine: View {
             if pdfView.canGoToPreviousPage {
                 pdfView.goToPreviousPage(nil)
                 velocityEngine.recordPageTurn(remainingPages: remaining)
-                if readingRoom.isHosting {
-                    readingRoom.broadcastPage(currentPageIndex, totalPages: max(1, totalPages))
-                }
             }
         }
         HapticEngine.selection()

@@ -1431,7 +1431,6 @@ struct ComicReaderEngine: View {
     @State private var showingSettingsHUD = false
     @AppStorage("essentialReaderMode") private var essentialReaderMode = false
     @AppStorage("backTapEnabled") private var backTapEnabled = false
-    @State private var showingCharacterMap = false
     @State private var lastBrightnessDragValue: CGFloat = 0
     /// Panels-style ambient chrome tint — sampled from the current page edges
     @State private var ambientPageColor: Color = .clear
@@ -1439,8 +1438,6 @@ struct ComicReaderEngine: View {
     @State private var ambientColorTask: Task<Void, Never>? = nil
     /// AI Dialogue Lens Layout-aware OCR Engine
     @StateObject private var narrationEngine = PageOCREngine()
-    /// Phase 3: Live Reading Room — MultipeerConnectivity co-reading session.
-    @StateObject private var readingRoom = ReadingRoomSession()
     
     /// SwiftData context
     @Environment(\.modelContext) private var modelContext
@@ -1723,15 +1720,6 @@ struct ComicReaderEngine: View {
             }
             .frame(width: 1, height: 1)
             .opacity(0.01)
-            // Phase 3: Live Reading Room overlay (peer avatars + reactions + HUD pill)
-            if readingRoom.isHosting {
-                ReadingRoomOverlay(
-                    session: readingRoom,
-                    currentPage: currentIndex,
-                    totalPages: cache.pageCount
-                )
-                .zIndex(15)
-            }
             
             if !hasSeenReaderOnboarding {
                 readerOnboardingOverlay
@@ -1802,8 +1790,6 @@ struct ComicReaderEngine: View {
                     await prewarmOCR(for: newIndex)
                 }
             }
-            // Phase 3: broadcast page change to any connected reading room peers
-            readingRoom.broadcastPage(newIndex, totalPages: cache.pageCount)
         }
         .onChange(of: essentialReaderMode) { _, isSpeed in
             if isSpeed {
@@ -2260,9 +2246,6 @@ struct ComicReaderEngine: View {
             onAnnotationsToggle: {
                 NotificationCenter.default.post(name: .toggleStudyNotebook, object: nil)
             },
-            onCharacterMapToggle: {
-                showingCharacterMap.toggle()
-            },
             isDialogueLensEnabled: isDialogueLensEnabled,
             onDialogueLensToggle: {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -2321,15 +2304,6 @@ struct ComicReaderEngine: View {
             isSettingsActive: readingMode != .pageHorizontal,
             currentModeLabel: readingMode != .pageHorizontal ? readingMode.hudLabel : nil,
             ambientColor: ambientPageColor,
-            isInRoom: readingRoom.isHosting,
-            roomPeerCount: readingRoom.peers.count,
-            onRoomToggle: {
-                if readingRoom.isHosting {
-                    readingRoom.stop()
-                } else {
-                    readingRoom.startHosting(bookID: pdf.id.uuidString)
-                }
-            },
             sessionStartTime: sessionStartTime,
             onSwipeDown: saveProgressAndDismiss
         )
@@ -2416,7 +2390,6 @@ struct ComicReaderEngine: View {
             progress.readingSessionDates.append(Date())
         }
         ReaderProgressTracker.shared.update(progress)
-        readingRoom.stop() // Phase 3: ensure room tears down on dismiss
         onDismiss()
     }
 
