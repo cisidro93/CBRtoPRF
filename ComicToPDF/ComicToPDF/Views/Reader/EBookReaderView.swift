@@ -80,6 +80,20 @@ struct EBookReaderView: View {
     // Key for persisting the scroll fraction alongside the chapter index
     private var fractionKey: String { "ebook_fraction_\(fileURL.lastPathComponent.hashValue)" }
 
+    private var rsvpContentText: String {
+        if let raw = metadata?.spineItems[safe: currentIndex]?.content, !raw.isEmpty {
+            return raw
+        }
+        return currentChapterTitle ?? title
+    }
+
+    private var footnoteBinding: Binding<FootnoteItem?> {
+        Binding<FootnoteItem?>(
+            get: { activeFootnoteText.map { FootnoteItem(text: $0) } },
+            set: { activeFootnoteText = $0?.text }
+        )
+    }
+
     private var currentChapterTitle: String? {
         guard let spine = metadata?.spineItems, spine.indices.contains(currentIndex) else { return nil }
         let label = spine[currentIndex].label.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -249,61 +263,16 @@ struct EBookReaderView: View {
         }
         .navigationBarHidden(true)
         .statusBarHidden(false)
-        
-        .overlay(alignment: .top) {
-            if showHUD {
-                topBar
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if showHUD {
-                bottomBar
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .overlay {
-            textSelectionHUDOverlay
-        }
-        .overlay(alignment: .bottom) {
-            if narrationEngine.isPlaying {
-                narrationFloatingHUD
-                    .padding(.bottom, showHUD ? 90 : 24)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .overlay {
-            ReadingJumpToastOverlay()
-        }
+        .overlay { readerOverlays }
         .fullScreenCover(isPresented: $showRSVPSpeedReader) {
-            let contentText: String = {
-                if let raw = metadata?.spineItems[safe: currentIndex]?.content, !raw.isEmpty {
-                    return raw
-                }
-                return currentChapterTitle ?? title
-            }()
-            RSVPSpeedReadingView(
-                rawText: contentText,
-                bookTitle: currentChapterTitle ?? title
-            ) { _ in }
+            rsvpSpeedReaderView
         }
         // Settings sheet lives here only — NOT duplicated inside chapterDrawer
         .sheet(isPresented: $showingSettingsPanel) {
-            EBookSettingsPanel(bookID: pdf?.id.uuidString)
-                .presentationDetents([.medium, .large])
+            settingsSheet
         }
         .sheet(isPresented: $showAnnotations) {
-            if let p = pdf ?? conversionManager.convertedPDFs.first(where: { $0.url.lastPathComponent == fileURL.lastPathComponent }) {
-                StudyNotebookView(
-                    bookID: p.id.uuidString,
-                    bookTitle: p.name,
-                    fileURL: p.url,
-                    showBackButton: true
-                )
-                .presentationDetents([.medium, .fraction(0.88)])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(28)
-            }
+            annotationsSheet
         }
         .sheet(isPresented: $showSleepTimerPicker) {
             SleepTimerPickerSheet()
@@ -311,39 +280,9 @@ struct EBookReaderView: View {
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(activityItems: [fileURL])
         }
-        .popover(item: Binding<FootnoteItem?>(
-            get: { activeFootnoteText.map { FootnoteItem(text: $0) } },
-            set: { activeFootnoteText = $0?.text }
-        )) { item in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Label("Footnote", systemImage: "text.quote")
-                            .font(.system(size: 14, weight: .bold, design: .rounded))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button(action: {
-                            HapticEngine.light()
-                            activeFootnoteText = nil
-                        }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 18))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Text(item.text)
-                        .font(.system(size: 16, weight: .regular))
-                        .foregroundStyle(prefs.activeTheme.foreground(colorScheme: colorScheme))
-                        .lineSpacing(4)
-                }
-                .padding(20)
-            }
-            .frame(maxWidth: 480)
-            .background(prefs.activeTheme.background(colorScheme: colorScheme))
-            .presentationDetents([.fraction(0.35), .medium])
-            .presentationCompactAdaptation(.popover)
+        .popover(item: footnoteBinding) { item in
+            footnotePopover(for: item)
         }
-
         .task { await loadBook() }
         .onDisappear { 
             narrationEngine.stop()
@@ -351,86 +290,32 @@ struct EBookReaderView: View {
             saveProgress() 
         }
         // FIX 4: Save scroll fraction whenever the chapter page changes
-        .onChange(of: chapterPage) { _, _ in saveProgress() }
+        .onChange(of: chapterPage) { _, _ in
+            saveProgress()
+            velocityEngine.recordPageTurn()
+            Task {
+                await ReadingPaceTracker.shared.recordPageTurn(wordsOnPage: 280, timeSpentSeconds: 12.0)
+            }
+        }
         // Also save position when the app goes to the background
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
             saveProgress()
         }
-        .overlay { if prefs.showReadingRuler { ReadingRulerOverlay() } }
         .onChange(of: sleepTimer.didFire) { _, fired in
             if fired { if let onExit = onExit { onExit() } else { dismiss() } }
         }
         // FIX 1+2: Colour picker popover for EPUB highlights
         .popover(item: $activeHighlightToEdit) { annotation in
-            HighlightQuickPopoverView(
-                annotation: annotation,
-                onDelete: {
-                    let idStr = annotation.id.uuidString
-                    let activeWV = resolveActiveWebView() ?? webViewReference
-                    if let text = annotation.selectedText {
-                        let safeText = text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: " ")
-                        activeWV?.evaluateJavaScript("if (window.removeInksyncHighlight) { window.removeInksyncHighlight('\(idStr)'); window.removeInksyncHighlight(`\(safeText)`); }")
-                    } else {
-                        activeWV?.evaluateJavaScript("if (window.removeInksyncHighlight) { window.removeInksyncHighlight('\(idStr)'); }")
-                    }
-                    let pid = annotation.pdfID
-                    AnnotationStore.shared.delete(id: annotation.id, pdfID: pid)
-                    modelContext.delete(annotation)
-                    try? modelContext.save()
-                    HapticEngine.selection()
-                    activeHighlightToEdit = nil
-                },
-                onEditNote: {
-                    annotationForFullEdit = annotation
-                    activeHighlightToEdit = nil
-                },
-                onColorSelected: { colorHex in
-                    let idStr = annotation.id.uuidString
-                    let activeWV = resolveActiveWebView() ?? webViewReference
-                    if let text = annotation.selectedText {
-                        let safeText = text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: " ")
-                        activeWV?.evaluateJavaScript("if (window.updateInksyncHighlightColor) { window.updateInksyncHighlightColor('\(idStr)', '\(colorHex)'); window.updateInksyncHighlightColor(`\(safeText)`, '\(colorHex)'); }")
-                    } else {
-                        activeWV?.evaluateJavaScript("if (window.updateInksyncHighlightColor) { window.updateInksyncHighlightColor('\(idStr)', '\(colorHex)'); }")
-                    }
-                    let pid = annotation.pdfID
-                    let matching = AnnotationStore.shared.annotations(for: pid)
-                        .first(where: { $0.id == annotation.id })
-                    if var updated = matching {
-                        updated.colorHex = colorHex
-                        AnnotationStore.shared.update(updated)
-                    }
-                    annotation.colorHex = colorHex
-                    try? modelContext.save()
-                    HapticEngine.selection()
-                }
-            )
-            .presentationCompactAdaptation(.popover)
+            highlightQuickPopover(for: annotation)
         }
         .sheet(item: $annotationForFullEdit) { annotation in
             AnnotationEditSheet(annotation: annotation)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        // Gap A: Annotations / highlights panel — same StudyNotebookView used by BookReaderEngine
-
         // Gap B: Full-text EPUB search sheet
         .sheet(isPresented: $showSearch) {
-            if let meta = metadata {
-                EPUBSearchView(
-                    spineItems: meta.spineItems,
-                    unzipDir: unzipDir,
-                    onNavigate: { chapterIdx, matchText in
-                        handleSearchNavigation(chapterIdx: chapterIdx, matchText: matchText)
-                    }
-                )
-            }
-        }
-        .onChange(of: chapterPage) { _, _ in
-            velocityEngine.recordPageTurn()
-            Task {
-                await ReadingPaceTracker.shared.recordPageTurn(wordsOnPage: 280, timeSpentSeconds: 12.0)
-            }
+            searchSheet
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerJumpToPage)) { notification in
             handleReaderJumpToPage(notification)
@@ -933,7 +818,7 @@ struct EBookReaderView: View {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 if let wv = resolveActiveWebView() ?? webViewReference {
                     let js = "document.getElementById('\(fragment)')?.scrollIntoView({ behavior: 'smooth', block: 'start' });"
-                    wv.evaluateJavaScript(js, completionHandler: nil)
+                    _ = try? await wv.evaluateJavaScript(js)
                 }
             }
         }
@@ -954,7 +839,7 @@ struct EBookReaderView: View {
                     if (!found) { window.find('\(safe)', false, false, false, false, false, false); }
                 })();
                 """
-                wv.evaluateJavaScript(js, completionHandler: nil)
+                _ = try? await wv.evaluateJavaScript(js)
             }
             pendingSearchMatch = nil
         }
@@ -1196,6 +1081,177 @@ struct EBookReaderView: View {
             }
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
+    }
+
+    // MARK: - Reader Overlay & Sheet Subviews
+    @ViewBuilder
+    private var readerOverlays: some View {
+        ZStack {
+            if showHUD {
+                VStack(spacing: 0) {
+                    topBar
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    Spacer()
+                    bottomBar
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .ignoresSafeArea(edges: .vertical)
+            }
+            
+            if narrationEngine.isPlaying {
+                VStack(spacing: 0) {
+                    Spacer()
+                    narrationFloatingHUD
+                        .padding(.bottom, showHUD ? 90 : 24)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .ignoresSafeArea(edges: .bottom)
+            }
+            
+            textSelectionHUDOverlay
+            ReadingJumpToastOverlay()
+            
+            if prefs.showReadingRuler {
+                ReadingRulerOverlay()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rsvpSpeedReaderView: some View {
+        RSVPSpeedReadingView(
+            rawText: rsvpContentText,
+            bookTitle: currentChapterTitle ?? title
+        ) { _ in }
+    }
+
+    @ViewBuilder
+    private var settingsSheet: some View {
+        EBookSettingsPanel(bookID: pdf?.id.uuidString)
+            .presentationDetents([.medium, .large])
+    }
+
+    @ViewBuilder
+    private var annotationsSheet: some View {
+        if let p = pdf ?? conversionManager.convertedPDFs.first(where: { $0.url.lastPathComponent == fileURL.lastPathComponent }) {
+            StudyNotebookView(
+                bookID: p.id.uuidString,
+                bookTitle: p.name,
+                fileURL: p.url,
+                showBackButton: true
+            )
+            .presentationDetents([.medium, .fraction(0.88)])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(28)
+        }
+    }
+
+    @ViewBuilder
+    private var searchSheet: some View {
+        if let meta = metadata {
+            EPUBSearchView(
+                spineItems: meta.spineItems,
+                unzipDir: unzipDir,
+                onNavigate: { chapterIdx, matchText in
+                    handleSearchNavigation(chapterIdx: chapterIdx, matchText: matchText)
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func footnotePopover(for item: FootnoteItem) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("Footnote", systemImage: "text.quote")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(action: {
+                        HapticEngine.light()
+                        activeFootnoteText = nil
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text(item.text)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(prefs.activeTheme.foreground(colorScheme: colorScheme))
+                    .lineSpacing(4)
+            }
+            .padding(20)
+        }
+        .frame(maxWidth: 480)
+        .background(prefs.activeTheme.background(colorScheme: colorScheme))
+        .presentationDetents([.fraction(0.35), .medium])
+        .presentationCompactAdaptation(.popover)
+    }
+
+    private func deleteHighlight(_ annotation: SDAnnotation) {
+        let idStr = annotation.id.uuidString
+        let activeWV = resolveActiveWebView() ?? webViewReference
+        if let text = annotation.selectedText {
+            let safeText = text
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "`", with: "\\`")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: " ")
+            activeWV?.evaluateJavaScript("if (window.removeInksyncHighlight) { window.removeInksyncHighlight('\(idStr)'); window.removeInksyncHighlight(`\(safeText)`); }")
+        } else {
+            activeWV?.evaluateJavaScript("if (window.removeInksyncHighlight) { window.removeInksyncHighlight('\(idStr)'); }")
+        }
+        let pid = annotation.pdfID
+        AnnotationStore.shared.delete(id: annotation.id, pdfID: pid)
+        modelContext.delete(annotation)
+        try? modelContext.save()
+        HapticEngine.selection()
+        activeHighlightToEdit = nil
+    }
+
+    private func updateHighlightColor(_ annotation: SDAnnotation, colorHex: String) {
+        let idStr = annotation.id.uuidString
+        let activeWV = resolveActiveWebView() ?? webViewReference
+        if let text = annotation.selectedText {
+            let safeText = text
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "`", with: "\\`")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: " ")
+            activeWV?.evaluateJavaScript("if (window.updateInksyncHighlightColor) { window.updateInksyncHighlightColor('\(idStr)', '\(colorHex)'); window.updateInksyncHighlightColor(`\(safeText)`, '\(colorHex)'); }")
+        } else {
+            activeWV?.evaluateJavaScript("if (window.updateInksyncHighlightColor) { window.updateInksyncHighlightColor('\(idStr)', '\(colorHex)'); }")
+        }
+        let pid = annotation.pdfID
+        let matching = AnnotationStore.shared.annotations(for: pid)
+            .first(where: { $0.id == annotation.id })
+        if var updated = matching {
+            updated.colorHex = colorHex
+            AnnotationStore.shared.update(updated)
+        }
+        annotation.colorHex = colorHex
+        try? modelContext.save()
+        HapticEngine.selection()
+    }
+
+    @ViewBuilder
+    private func highlightQuickPopover(for annotation: SDAnnotation) -> some View {
+        HighlightQuickPopoverView(
+            annotation: annotation,
+            onDelete: {
+                deleteHighlight(annotation)
+            },
+            onEditNote: {
+                annotationForFullEdit = annotation
+                activeHighlightToEdit = nil
+            },
+            onColorSelected: { colorHex in
+                updateHighlightColor(annotation, colorHex: colorHex)
+            }
+        )
+        .presentationCompactAdaptation(.popover)
     }
 
     private func resolveActiveWebView() -> WKWebView? {
