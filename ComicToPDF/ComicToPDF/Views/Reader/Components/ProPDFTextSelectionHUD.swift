@@ -96,6 +96,7 @@ struct ProPDFTextSelectionHUD: View {
     var onSpeak: (String) -> Void
     var onCreateZettelkastenCard: (String) -> Void
     var onAddMarginaliaSymbol: ((String) -> Void)? = nil
+    var onUnhighlight: (() -> Void)? = nil
     var onDismiss: (() -> Void)? = nil
 
     @State private var showingNoteInput = false
@@ -294,6 +295,35 @@ struct ProPDFTextSelectionHUD: View {
                     Divider()
                         .frame(height: 18)
                         .background(Color.white.opacity(0.2))
+
+                    if let onUnhighlight = onUnhighlight {
+                        Button(action: {
+                            HapticEngine.medium()
+                            onUnhighlight()
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.red.opacity(0.18))
+                                    .frame(width: 24, height: 24)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.red.opacity(0.6), lineWidth: 1)
+                                    )
+                                Image(systemName: "eraser.fill")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.red)
+                            }
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Unhighlight")
+                        .help("Unhighlight / Remove Highlight")
+
+                        Divider()
+                            .frame(height: 18)
+                            .background(Color.white.opacity(0.2))
+                    }
 
                     // Action Buttons
                     HStack(spacing: 10) {

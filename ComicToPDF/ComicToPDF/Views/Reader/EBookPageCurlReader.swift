@@ -93,7 +93,6 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
         singleTap.cancelsTouchesInView = false
         singleTap.delegate = context.coordinator
         singleTap.require(toFail: doubleTap)
-        singleTap.require(toFail: selectionGuard)
         view.addGestureRecognizer(singleTap)
 
         // Pinch to Zoom / Scale Text (Kindle-style interactive text scaling)
@@ -881,8 +880,18 @@ extension EBookPageCurlReader {
                 return
             }
 
+            let location = gesture.location(in: view)
+            let width = view.bounds.width
+            let zones = tapZoneStyle.zones
+
+            // Instantaneous edge turn: left or right page turn zones fire with zero asynchronous latency
+            if location.x < width * zones.leftEdge || location.x > width * zones.rightEdge {
+                performTapZoneAction(location: location, width: width, pvc: pvc)
+                return
+            }
+
             guard let wv = primaryWebView else {
-                performTapZoneAction(location: gesture.location(in: view), width: view.bounds.width, pvc: pvc)
+                performTapZoneAction(location: location, width: width, pvc: pvc)
                 return
             }
 
@@ -891,10 +900,14 @@ extension EBookPageCurlReader {
             (function() {
                 var sel = window.getSelection();
                 if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) return "selection";
-                if (window.__selectionDragActive) return "drag";
                 var el = document.elementFromPoint(\(ptInWV.x), \(ptInWV.y));
                 if (!el) return "page";
-                if (el.closest('mark.inksync-highlight') || el.classList.contains('inksync-highlight')) return "highlight";
+                var mark = el.closest ? el.closest('mark.inksync-highlight') : (el.classList && el.classList.contains('inksync-highlight') ? el : null);
+                if (mark) {
+                    var id = mark.getAttribute('data-id') || '';
+                    var text = mark.textContent.trim();
+                    return JSON.stringify({ type: "highlight", id: id, text: text });
+                }
                 if (el.closest('a') || el.tagName === 'A') return "link";
                 if (el.closest('.footnote') || el.getAttribute('epub:type') === 'noteref' || el.getAttribute('epub:type') === 'footnote') return "footnote";
                 return "page";
@@ -909,13 +922,27 @@ extension EBookPageCurlReader {
                     self.isUserSelectingText = false
                     return
                 }
-                if res == "highlight" || res == "drag" || res == "link" || res == "footnote" {
-                    // Touched a highlight or interactive element; suppress page turn!
+                if res.contains("\"highlight\"") {
+                    if let data = res.data(using: .utf8),
+                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                        let id = obj["id"] ?? ""
+                        let text = obj["text"] ?? ""
+                        let target = !id.isEmpty ? id : text
+                        if !target.isEmpty {
+                            self.parent.onHighlightTapped?(target)
+                            HapticEngine.selection()
+                            return
+                        }
+                    }
+                    return
+                }
+                if res == "highlight" || res == "link" || res == "footnote" {
+                    // Touched a link or interactive element; allow native action to proceed
                     return
                 }
 
-                let location = gesture.location(in: view)
-                self.performTapZoneAction(location: location, width: view.bounds.width, pvc: pvc)
+                let loc = gesture.location(in: view)
+                self.performTapZoneAction(location: loc, width: view.bounds.width, pvc: pvc)
             }
         }
 
@@ -1359,10 +1386,14 @@ extension EBookPageCurlReader {
                 column-rule: none !important;
             """
 
-            let paddingTop = max(0, prefs.textMarginTop)
-            let paddingBottom = max(0, prefs.textMarginBottom)
-            let paddingLeft = max(0, prefs.textMargin)
-            let paddingRight = max(0, prefs.textMargin)
+            let windowScene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            let safeArea = windowScene?.windows.first?.safeAreaInsets ?? .zero
+            let safeTop = max(safeArea.top, 24.0)
+            let safeBottom = max(safeArea.bottom, 20.0)
+            let paddingTop = safeTop + max(20.0, prefs.textMarginTop)
+            let paddingBottom = safeBottom + max(36.0, prefs.textMarginBottom)
+            let paddingLeft = max(16.0, prefs.textMargin)
+            let paddingRight = max(16.0, prefs.textMargin)
 
             return """
             @font-face { font-family: 'Literata'; src: local('Literata-Regular'); font-weight: normal; font-style: normal; }
@@ -1659,7 +1690,7 @@ extension EBookPageCurlReader {
                             window.__lastSelectedText = "";
                             try { window.webkit.messageHandlers.onSelectionDismissed.postMessage({}); } catch(e) {}
                         }
-                    }, 500);
+                    }, 120);
                     return;
                 }
                 if (window.__selectionDismissTimeout) {
@@ -1678,30 +1709,7 @@ extension EBookPageCurlReader {
                 }
             });
 
-            // ✅ Fix: Track touch movement so the native tap-zone guard can detect
-            // text-selection drags before the UITapGestureRecognizer fires.
-            (function() {
-                var __touchStartX = 0, __touchStartY = 0;
-                document.addEventListener('touchstart', function(e) {
-                    var t = e.touches[0];
-                    if (t) { __touchStartX = t.clientX; __touchStartY = t.clientY; }
-                    window.__selectionDragActive = false;
-                }, { passive: true });
-                document.addEventListener('touchmove', function(e) {
-                    var t = e.touches[0];
-                    if (t) {
-                        var dx = t.clientX - __touchStartX;
-                        var dy = t.clientY - __touchStartY;
-                        if (Math.sqrt(dx*dx + dy*dy) > 5) {
-                            window.__selectionDragActive = true;
-                        }
-                    }
-                }, { passive: true });
-                document.addEventListener('touchend', function() {
-                    // Keep flag alive for 200ms so Swift tap handler can read it without edge turn conflicts
-                    setTimeout(function() { window.__selectionDragActive = false; }, 200);
-                }, { passive: true });
-            })();
+            // Passive selection observer for SwiftUI context HUD
 
             document.addEventListener('click', function(e) {
                 var mark = e.target.closest ? e.target.closest('mark.inksync-highlight') : null;

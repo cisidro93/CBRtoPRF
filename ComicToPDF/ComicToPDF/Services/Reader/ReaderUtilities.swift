@@ -145,7 +145,7 @@ struct EdgeBrightnessGestureZone: View {
                 .frame(width: ReaderLayoutConstants.brightnessZoneWidth)
                 .allowsHitTesting(true)
                 .gesture(
-                    DragGesture()
+                    DragGesture(minimumDistance: 24)
                         .onChanged { value in
                             let delta = value.translation.height - lastDragTranslationY
                             lastDragTranslationY = value.translation.height

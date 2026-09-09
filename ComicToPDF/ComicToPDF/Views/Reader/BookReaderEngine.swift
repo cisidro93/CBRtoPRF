@@ -2187,6 +2187,7 @@ struct HighlightQuickPopoverView: View {
     ]
 
     private let marginaliaSymbols = ["?", "!", "★", "≠", "Δ"]
+    @State private var showingDeleteConfirm = false
     
     var body: some View {
         VStack(spacing: 10) {
@@ -2283,10 +2284,20 @@ struct HighlightQuickPopoverView: View {
                 
                 Spacer()
                 
-                Button(action: onDelete) {
+                Button {
+                    showingDeleteConfirm = true
+                } label: {
                     Image(systemName: "trash")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.red)
+                }
+                .alert("Delete Highlight?", isPresented: $showingDeleteConfirm) {
+                    Button("Delete", role: .destructive) {
+                        onDelete()
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This will permanently remove the highlight from the document and your study notes.")
                 }
             }
             .padding(.horizontal, 4)

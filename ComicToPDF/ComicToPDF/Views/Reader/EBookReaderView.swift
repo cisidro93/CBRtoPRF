@@ -63,6 +63,10 @@ struct EBookReaderView: View {
     @State private var selectedTextForHUD: String? = nil
     @State private var isApplyingHighlightDirectly = false
     @State private var lastBrightnessDragValue: CGFloat = 0
+    // Toast notification overlay state
+    @State private var toastMessage: String = ""
+    @State private var showToast: Bool = false
+    @State private var toastTask: Task<Void, Never>? = nil
     // Gap A: Annotations panel
     @State private var showAnnotations = false
     // Gap B: In-reader search
@@ -169,12 +173,18 @@ struct EBookReaderView: View {
                                     let hId = UUID(uuidString: idStr) ?? UUID()
                                     saveHighlightFromDirectDOM(id: hId, text: selectedText, colorHex: colorHex)
                                 },
-                                onHighlightTapped: { tappedText in
-                                    if let sdMatch = findMatchingAnnotation(tappedText: tappedText) {
+                                onHighlightTapped: { tappedIdentifier in
+                                    if let sdMatch = findMatchingAnnotation(tappedText: tappedIdentifier) {
                                         withAnimation(.easeInOut(duration: 0.18)) {
+                                            selectedTextForHUD = sdMatch.selectedText ?? tappedIdentifier
                                             activeHighlightToEdit = sdMatch
                                         }
+                                    } else {
+                                        withAnimation(.easeInOut(duration: 0.18)) {
+                                            selectedTextForHUD = tappedIdentifier
+                                        }
                                     }
+                                    HapticEngine.selection()
                                 },
                                 onTextSelected: { text in
                                     withAnimation(.easeInOut(duration: 0.18)) {
@@ -255,6 +265,7 @@ struct EBookReaderView: View {
 
             // ── Reading Progress Bar (Fixed Top Floating Overlay) ──────────
             GeometryReader { geo in
+                let topInset = geo.safeAreaInsets.top
                 ZStack(alignment: .leading) {
                     Rectangle().fill(prefs.activeTheme.foreground(colorScheme: colorScheme).opacity(0.08)).frame(height: 2)
                     Rectangle()
@@ -263,9 +274,10 @@ struct EBookReaderView: View {
                         .frame(width: geo.size.width * progressFraction, height: 2)
                         .animation(.spring(response: 0.4), value: progressFraction)
                 }
+                .frame(height: 2)
+                .padding(.top, max(topInset > 0 ? topInset : 20, 16))
             }
             .frame(height: 2)
-            .padding(.top, 44)
             .allowsHitTesting(false)
             
             // ── HUD Overlays (tap-to-show UI) ─────────────────────────────
@@ -333,9 +345,29 @@ struct EBookReaderView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("Reader_JumpToChapterHref"))) { notification in
             handleJumpToChapterHref(notification)
         }
-        // Gap B: After chapter navigation, inject window.find() into the live WebView
         .onChange(of: currentIndex) { _, _ in
             handleCurrentIndexChanged()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .annotationsDidChange)) { notif in
+            if let deletedID = notif.userInfo?["deletedID"] as? UUID {
+                let idStr = deletedID.uuidString
+                let activeWV = resolveActiveWebView() ?? webViewReference
+                activeWV?.evaluateJavaScript("if (window.removeInksyncHighlight) { window.removeInksyncHighlight('\(idStr)'); }")
+            }
+            if let deletedText = notif.userInfo?["text"] as? String, !deletedText.isEmpty {
+                let safeText = deletedText
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "`", with: "\\`")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+                    .replacingOccurrences(of: "\n", with: " ")
+                let activeWV = resolveActiveWebView() ?? webViewReference
+                activeWV?.evaluateJavaScript("if (window.removeInksyncHighlight) { window.removeInksyncHighlight(`\(safeText)`); }")
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("InksyncPro.ShowToast"))) { notif in
+            if let msg = notif.userInfo?["message"] as? String {
+                showToastMessage(msg)
+            }
         }
     }
 
@@ -1067,6 +1099,10 @@ struct EBookReaderView: View {
                         applyHighlight(text: selectedText, colorHex: color.rawValue, symbol: nil, style: style)
                         selectedTextForHUD = nil
                     },
+                    onUnhighlight: {
+                        unhighlightInEPUB(text: selectedText)
+                        selectedTextForHUD = nil
+                    },
                     onAddNote: { note in
                         applyHighlight(text: selectedText, colorHex: EBookPreferences.shared.defaultHighlightColor.rawValue, note: note, symbol: nil)
                         selectedTextForHUD = nil
@@ -1075,6 +1111,7 @@ struct EBookReaderView: View {
                         UIPasteboard.general.string = selectedText
                         selectedTextForHUD = nil
                         HapticEngine.selection()
+                        showToastMessage("Copied to Clipboard")
                     },
                     onSpeak: { text in
                         speakText(text)
@@ -1086,6 +1123,13 @@ struct EBookReaderView: View {
                     onAddMarginaliaSymbol: { symbol in
                         applyHighlight(text: selectedText, colorHex: EBookPreferences.shared.defaultHighlightColor.rawValue, symbol: symbol)
                         selectedTextForHUD = nil
+                    },
+                    onDismiss: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            selectedTextForHUD = nil
+                        }
+                        let wv = resolveActiveWebView() ?? webViewReference
+                        wv?.evaluateJavaScript("window.getSelection()?.removeAllRanges();")
                     }
                 )
                 .padding(.bottom, showHUD ? 80 : 30)
@@ -1139,6 +1183,7 @@ struct EBookReaderView: View {
             
             textSelectionHUDOverlay
             ReadingJumpToastOverlay()
+            toastAlertOverlay
             
             if prefs.showReadingRuler {
                 ReadingRulerOverlay()
@@ -1356,13 +1401,21 @@ struct EBookReaderView: View {
         }
         
         let annKind: Annotation.AnnotationKind
+        let toastTitle: String
         if note != nil {
             annKind = .note
+            toastTitle = "Note Added"
         } else {
             switch style {
-            case .underline: annKind = .underline
-            case .strikeOut: annKind = .strikeOut
-            case .highlight: annKind = .highlight
+            case .underline:
+                annKind = .underline
+                toastTitle = "Underline Added"
+            case .strikeOut:
+                annKind = .strikeOut
+                toastTitle = "Strikethrough Added"
+            case .highlight:
+                annKind = .highlight
+                toastTitle = "Highlight Added"
             }
         }
 
@@ -1393,7 +1446,75 @@ struct EBookReaderView: View {
         let js = "if (window.applyInksyncHighlight) { window.applyInksyncHighlight('\(idStr)', '\(colorHex)', '\(safeSymbol)', '\(style.rawValue)'); }"
         let targetWV = resolveActiveWebView() ?? webViewReference
         targetWV?.evaluateJavaScript(js)
+        showToastMessage(toastTitle)
         HapticEngine.selection()
+    }
+
+    private func unhighlightInEPUB(text: String) {
+        guard let p = pdf ?? conversionManager.convertedPDFs.first(where: { $0.url.lastPathComponent == fileURL.lastPathComponent }) else { return }
+        let storeAnns = AnnotationStore.shared.annotations(for: p.id)
+        let matches = storeAnns.filter { ann in
+            if ann.id.uuidString == text { return true }
+            guard let sel = ann.selectedText, !sel.isEmpty else { return false }
+            return sel == text || sel.contains(text) || text.contains(sel)
+        }
+        
+        let activeWV = resolveActiveWebView() ?? webViewReference
+        let safeText = text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: " ")
+
+        for match in matches {
+            let idStr = match.id.uuidString
+            activeWV?.evaluateJavaScript("if (window.removeInksyncHighlight) { window.removeInksyncHighlight('\(idStr)'); window.removeInksyncHighlight(`\(safeText)`); }")
+            AnnotationStore.shared.delete(id: match.id, pdfID: p.id)
+            let matchID = match.id
+            let descriptor = FetchDescriptor<SDAnnotation>(predicate: #Predicate { $0.id == matchID })
+            if let sdAnns = try? modelContext.fetch(descriptor) {
+                for sd in sdAnns {
+                    modelContext.delete(sd)
+                }
+            }
+        }
+        // Also call removeInksyncHighlight on the safeText in case it was a raw DOM selection
+        activeWV?.evaluateJavaScript("if (window.removeInksyncHighlight) { window.removeInksyncHighlight(`\(safeText)`); window.getSelection()?.removeAllRanges(); }")
+        
+        try? modelContext.save()
+        showToastMessage("Highlight Removed")
+        HapticEngine.selection()
+    }
+
+    private func showToastMessage(_ message: String) {
+        toastTask?.cancel()
+        toastMessage = message
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            showToast = true
+        }
+        toastTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                self.showToast = false
+            }
+        }
+    }
+
+    @ViewBuilder private var toastAlertOverlay: some View {
+        if showToast {
+            Text(toastMessage)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+                .padding(.bottom, 110)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(100)
+        }
     }
 
     private func createZettelkastenCard(text: String) {

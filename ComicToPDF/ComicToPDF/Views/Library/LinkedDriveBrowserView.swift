@@ -169,11 +169,35 @@ struct LinkedDriveBrowserView: View {
             .buttonStyle(PlainButtonStyle())
         }
         .padding(.vertical, 2)
-        .swipeActions(edge: .leading) {
+        .contextMenu {
+            Button {
+                openForReading(item)
+            } label: {
+                Label("Read Now", systemImage: "book.fill")
+            }
             Button {
                 addToLibrary(item)
             } label: {
-                Label("Add to Library", systemImage: "plus.circle.fill")
+                Label("Stream from Drive (Zero Storage)", systemImage: "externaldrive.badge.wifi")
+            }
+            Button {
+                downloadToLocal(item)
+            } label: {
+                Label("Download to Local Library", systemImage: "arrow.down.circle.fill")
+            }
+        }
+        .swipeActions(edge: .leading) {
+            Button {
+                downloadToLocal(item)
+            } label: {
+                Label("Download", systemImage: "arrow.down.circle.fill")
+            }
+            .tint(.blue)
+
+            Button {
+                addToLibrary(item)
+            } label: {
+                Label("Link (Stream)", systemImage: "link")
             }
             .tint(.green)
         }
@@ -336,5 +360,39 @@ struct LinkedDriveBrowserView: View {
         }) else { return }
         conversionManager.convertedPDFs.append(pdf)
         conversionManager.saveLibrary()
+        NotificationCenter.default.post(name: NSNotification.Name("InksyncPro.ShowToast"), object: nil, userInfo: ["message": "Linked '\(stem)' to Library"])
+    }
+
+    private func downloadToLocal(_ item: BrowseItem) {
+        guard case .file(let url) = item.kind else { return }
+        let stem = url.deletingPathExtension().lastPathComponent
+        var bookmarkData: Data? = nil
+        if let rootURL = try? BookmarkResolver.shared.resolve(driveEntry.volumeBookmarkData) {
+            let accessing = rootURL.startAccessingSecurityScopedResource()
+            defer { if accessing { rootURL.stopAccessingSecurityScopedResource() } }
+            bookmarkData = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+        }
+        guard let bm = bookmarkData else { return }
+
+        let ext = url.pathExtension.lowercased()
+        let type: ContentType = (ext == "epub") ? .book : .comic
+        var pdf = ConvertedPDF(
+            name: stem,
+            url: url,
+            pageCount: 0,
+            fileSize: item.fileSize,
+            metadata: PDFMetadata(title: stem),
+            contentType: type
+        )
+        pdf.sourceMode = .linked(bookmarkData: bm)
+
+        Task {
+            do {
+                try await conversionManager.downloadLinkedItemToLocal(pdf: pdf)
+                HapticEngine.success()
+            } catch {
+                Logger.shared.log("Failed to download linked item: \(error.localizedDescription)", category: "ExternalStorage", type: .error)
+            }
+        }
     }
 }

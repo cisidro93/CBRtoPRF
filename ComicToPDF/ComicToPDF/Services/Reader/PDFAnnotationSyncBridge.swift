@@ -157,6 +157,47 @@ final class PDFAnnotationSyncBridge {
         Logger.shared.log("PDFAnnotationSync: Applied \(storeAnnotations.count) annotations onto active PDF document", category: "PDF")
     }
 
+    // MARK: - Remove Annotation from Live PDFDocument
+    
+    /// Removes a specific annotation from the live `PDFDocument` (matching by userName UUID or matching contents/bounds),
+    /// schedules debounced disk persistence, and returns true if an annotation was found and removed.
+    @discardableResult
+    @MainActor
+    func removeAnnotation(id: UUID, from document: PDFDocument, on pageIndex: Int? = nil, text: String? = nil, destinationURL: URL? = nil) -> Bool {
+        var didRemove = false
+        let idString = id.uuidString
+        
+        let targetPages: [PDFPage]
+        if let idx = pageIndex, idx >= 0 && idx < document.pageCount, let page = document.page(at: idx) {
+            targetPages = [page]
+        } else {
+            targetPages = (0..<document.pageCount).compactMap { document.page(at: $0) }
+        }
+        
+        for page in targetPages {
+            let matching = page.annotations.filter { ann in
+                if ann.userName == idString { return true }
+                if let t = text, !t.isEmpty, let c = ann.contents, c == t {
+                    let typeName = ann.type ?? ""
+                    if typeName.contains("Highlight") || typeName.contains("Underline") || typeName.contains("StrikeOut") || typeName.contains("Text") {
+                        return true
+                    }
+                }
+                return false
+            }
+            for ann in matching {
+                page.removeAnnotation(ann)
+                didRemove = true
+            }
+        }
+        
+        if didRemove {
+            Logger.shared.log("PDFAnnotationSync: Removed annotation \(idString) from document", category: "PDF", type: .info)
+            scheduleDebouncedDiskSync(for: id, in: document, at: destinationURL)
+        }
+        return didRemove
+    }
+
     // MARK: - Sync & Persist to Document Disk Storage
     
     /// Non-blocking, debounced disk persistence for interactive highlighting.

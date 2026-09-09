@@ -125,6 +125,8 @@ final class SharedImportCoordinator: ObservableObject {
                         object: firstPDF
                     )
                     NotificationCenter.default.post(name: .libraryNeedsRescan, object: nil)
+                    let toastMsg = ingestedNames.count == 1 ? "Added '\(ingestedNames[0])' to Library" : "Added \(ingestedNames.count) books to Library"
+                    NotificationCenter.default.post(name: NSNotification.Name("InksyncPro.ShowToast"), object: nil, userInfo: ["message": toastMsg])
                 } else {
                     Logger.shared.log(
                         "SharedImportCoordinator: No files ingested — leaving flags set for next foreground retry.",
@@ -224,6 +226,7 @@ final class SharedImportCoordinator: ObservableObject {
             object: openedPDF
         )
         NotificationCenter.default.post(name: .libraryNeedsRescan, object: nil)
+        NotificationCenter.default.post(name: NSNotification.Name("InksyncPro.ShowToast"), object: nil, userInfo: ["message": "Added '\(filename)' to Library"])
         return dest
     }
 

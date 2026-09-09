@@ -7,12 +7,15 @@ struct ProDocumentInspectorView: View {
     let pdfDocument: PDFDocument?
     let currentPageIndex: Int
     var onJumpToPage: (Int) -> Void
+    var onDeleteAnnotation: ((Annotation) -> Void)? = nil
     var onDismiss: () -> Void
 
     @State private var selectedTab: InspectorTab = .outline
     @State private var searchQuery: String = ""
     @State private var searchResults: [PDFSelection] = []
     @State private var isSearching = false
+    @State private var annotationPendingDeletion: Annotation? = nil
+    @State private var showingDeleteConfirmation = false
 
     enum InspectorTab: String, CaseIterable, Identifiable {
         case outline = "Outline"
@@ -182,42 +185,79 @@ struct ProDocumentInspectorView: View {
                         .foregroundColor(Theme.textTertiary)
                 }
             } else {
-                List(annotations) { ann in
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Circle()
-                                .fill(Color(hex: ann.colorHex ?? "#FFD600"))
-                                .frame(width: 10, height: 10)
-                            Text("Page \(ann.pageIndex + 1)")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(Theme.textSecondary)
-                            Spacer()
-                            Text(ann.createdAt.formatted(date: .numeric, time: .shortened))
-                                .font(.system(size: 10))
-                                .foregroundColor(Theme.textTertiary)
-                        }
+                List {
+                    ForEach(annotations) { ann in
+                        HStack(alignment: .top, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Circle()
+                                        .fill(Color(hex: ann.colorHex ?? "#FFD600"))
+                                        .frame(width: 10, height: 10)
+                                    Text("Page \(ann.pageIndex + 1)")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(Theme.textSecondary)
+                                    Spacer()
+                                    Text(ann.createdAt.formatted(date: .numeric, time: .shortened))
+                                        .font(.system(size: 10))
+                                        .foregroundColor(Theme.textTertiary)
+                                }
 
-                        if let text = ann.selectedText, !text.isEmpty {
-                            Text("\"\(text)\"")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(Theme.text)
-                                .lineLimit(3)
-                        }
+                                if let text = ann.selectedText, !text.isEmpty {
+                                    Text("\"\(text)\"")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(Theme.text)
+                                        .lineLimit(3)
+                                }
 
-                        if let note = ann.noteText, !note.isEmpty {
-                            Text("Note: \(note)")
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundColor(.inkGreen)
+                                if let note = ann.noteText, !note.isEmpty {
+                                    Text("Note: \(note)")
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(.inkGreen)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                onJumpToPage(ann.pageIndex)
+                                onDismiss()
+                            }
+
+                            Button {
+                                HapticEngine.light()
+                                annotationPendingDeletion = ann
+                                showingDeleteConfirmation = true
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.red.opacity(0.7))
+                                    .frame(width: 32, height: 32)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Delete highlight")
                         }
-                    }
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        onJumpToPage(ann.pageIndex)
-                        onDismiss()
+                        .padding(.vertical, 4)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                annotationPendingDeletion = ann
+                                showingDeleteConfirmation = true
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
                 }
                 .listStyle(.plain)
+                .alert("Delete Highlight?", isPresented: $showingDeleteConfirmation, presenting: annotationPendingDeletion) { targetAnn in
+                    Button("Delete Highlight", role: .destructive) {
+                        onDeleteAnnotation?(targetAnn)
+                        annotationPendingDeletion = nil
+                    }
+                    Button("Cancel", role: .cancel) {
+                        annotationPendingDeletion = nil
+                    }
+                } message: { _ in
+                    Text("This will permanently remove the highlight from the document and your study notes.")
+                }
             }
         }
     }

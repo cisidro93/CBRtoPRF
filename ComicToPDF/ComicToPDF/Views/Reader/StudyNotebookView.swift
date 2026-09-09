@@ -165,6 +165,8 @@ struct StudyNotebookView: View {
     @State private var highlightSortNewest = true
     @State private var selectedTagFilter: String? = nil
     @State private var activeHighlightToEdit: SDAnnotation? = nil
+    @State private var highlightPendingDelete: SDAnnotation? = nil
+    @State private var showDeleteHighlightAlert: Bool = false
     @State private var showWritingAssistant = false
     
     // ✅ Speech-to-Text Subsystem
@@ -739,6 +741,14 @@ struct StudyNotebookView: View {
                     refreshHighlights()
                 }
             }
+            .alert("Delete Highlight?", isPresented: $showDeleteHighlightAlert, presenting: highlightPendingDelete) { highlight in
+                Button("Delete", role: .destructive) {
+                    deleteHighlightCompletely(highlight)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("This will permanently remove the highlight from the document and your study notes.")
+            }
             .sheet(isPresented: $showWritingAssistant) {
                 WritingAssistantSheet(text: $localNotes)
                     .presentationDetents([.medium, .large])
@@ -1085,6 +1095,30 @@ struct StudyNotebookView: View {
         }
         Logger.shared.log("Inserted formatted highlight citation into note for '\(bookTitle)'", category: "Notebook", type: .info)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    private func deleteHighlightCompletely(_ highlight: SDAnnotation) {
+        let pid = highlight.pdfID
+        let highlightID = highlight.id
+        let selectedText = highlight.selectedText ?? ""
+        
+        AnnotationStore.shared.delete(id: highlightID, pdfID: pid)
+        modelContext.delete(highlight)
+        try? modelContext.save()
+        
+        // Post broadcast so live readers (PDF and EPUB) immediately unhighlight in their canvas/DOM
+        NotificationCenter.default.post(
+            name: .annotationsDidChange,
+            object: nil,
+            userInfo: [
+                "pdfID": pid,
+                "deletedID": highlightID,
+                "text": selectedText
+            ]
+        )
+        
+        refreshHighlights()
+        HapticEngine.selection()
     }
 
     private func generateAISummary() {
@@ -1616,6 +1650,17 @@ struct StudyNotebookView: View {
                                             }
                                             .font(.system(size: 11, weight: .bold))
                                             .foregroundColor(.secondary)
+                                        }
+                                        .buttonStyle(.borderless)
+                                        
+                                        Button {
+                                            highlightPendingDelete = highlight
+                                            showDeleteHighlightAlert = true
+                                        } label: {
+                                            Image(systemName: "trash")
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundColor(.red.opacity(0.85))
+                                                .padding(4)
                                         }
                                         .buttonStyle(.borderless)
                                     }

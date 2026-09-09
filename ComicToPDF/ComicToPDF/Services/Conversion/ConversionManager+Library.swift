@@ -387,4 +387,78 @@ extension ConversionManager {
     func extractSmartPanels(from url: URL) async throws -> [Int: [PanelExtractor.Panel]]? {
         return try await SmartPanelService.shared.extractSmartPanels(from: url)
     }
+
+    // MARK: - External Storage Streaming vs. Local Download
+    /// Downloads a linked external storage document (USB-C drive / external SMB)
+    /// into the local InksyncVault Documents directory so the user can disconnect
+    /// the external drive and read offline anywhere.
+    @discardableResult
+    func downloadLinkedItemToLocal(pdf: ConvertedPDF) async throws -> ConvertedPDF {
+        guard case .linked(let bookmarkData) = pdf.sourceMode else {
+            return pdf // Already local
+        }
+        
+        let resolvedExternalURL = try BookmarkResolver.shared.resolve(bookmarkData)
+        let didAccess = resolvedExternalURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                resolvedExternalURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        
+        let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let vaultDir = documentsDir.appendingPathComponent("InksyncVault", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: vaultDir.path) {
+            try? FileManager.default.createDirectory(at: vaultDir, withIntermediateDirectories: true)
+        }
+        
+        var destinationURL = vaultDir.appendingPathComponent(resolvedExternalURL.lastPathComponent)
+        var counter = 1
+        while FileManager.default.fileExists(atPath: destinationURL.path) {
+            let stem = resolvedExternalURL.deletingPathExtension().lastPathComponent
+            let ext = resolvedExternalURL.pathExtension
+            let newName = "\(stem)_\(counter).\(ext)"
+            destinationURL = vaultDir.appendingPathComponent(newName)
+            counter += 1
+        }
+        
+        var coordinatorError: NSError?
+        var copySuccess = false
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(readingItemAt: resolvedExternalURL, options: [], writingItemAt: destinationURL, options: .forReplacing, error: &coordinatorError) { readURL, writeURL in
+            do {
+                try FileManager.default.copyItem(at: readURL, to: writeURL)
+                copySuccess = true
+            } catch {
+                coordinatorError = error as NSError
+            }
+        }
+        
+        if let err = coordinatorError {
+            throw err
+        }
+        guard copySuccess else {
+            throw NSError(domain: "InksyncPro.ExternalStorage", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to copy file to local vault."])
+        }
+        
+        // Update model
+        var updated = pdf
+        updated.url = destinationURL
+        updated.sourceMode = .local
+        let newSize = (try? destinationURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? pdf.fileSize
+        updated.fileSize = newSize
+        
+        await MainActor.run {
+            if let idx = self.convertedPDFs.firstIndex(where: { $0.id == pdf.id }) {
+                self.convertedPDFs[idx] = updated
+            } else {
+                self.convertedPDFs.insert(updated, at: 0)
+            }
+            self.saveLibrary()
+            NotificationCenter.default.post(name: .libraryNeedsRescan, object: nil)
+            NotificationCenter.default.post(name: NSNotification.Name("InksyncPro.ShowToast"), object: nil, userInfo: ["message": "Downloaded '\(updated.name)' to Local Library"])
+        }
+        
+        return updated
+    }
 }

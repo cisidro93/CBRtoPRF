@@ -434,6 +434,9 @@ struct ProPDFReaderEngine: View {
                 onJumpToPage: { pageIdx in
                     jumpToPage(pageIdx)
                 },
+                onDeleteAnnotation: { ann in
+                    removeAnnotation(id: ann.id, pageIndex: ann.pageIndex)
+                },
                 onDismiss: {
                     showingInspector = false
                 }
@@ -561,6 +564,18 @@ struct ProPDFReaderEngine: View {
             saveReadingProgress()
             if let doc = pdfDocument {
                 PDFAnnotationSyncBridge.shared.syncStoreToDocument(for: pdf.id, in: doc)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .annotationsDidChange)) { notif in
+            if let targetPDFID = notif.userInfo?["pdfID"] as? UUID, targetPDFID == pdf.id {
+                if let deletedID = notif.userInfo?["deletedID"] as? UUID {
+                    removeAnnotation(id: deletedID, pageIndex: nil)
+                } else if let doc = pdfDocument {
+                    PDFAnnotationSyncBridge.shared.applyStoreAnnotations(for: pdf.id, to: doc)
+                    if let pv = pdfViewReference {
+                        forcePageRedraw(pv, pageIndex: currentPageIndex)
+                    }
+                }
             }
         }
         .onChange(of: isPencilMode) { _, enabled in
@@ -871,6 +886,10 @@ struct ProPDFReaderEngine: View {
                     onMarkup: { color, style in
                         EBookPreferences.shared.defaultHighlightColor = color
                         saveMarkup(text: selectedText, color: color, style: style)
+                        selectedTextForHUD = nil
+                    },
+                    onUnhighlight: {
+                        unhighlightSelection(text: selectedText)
                         selectedTextForHUD = nil
                     },
                     onAddNote: { note in
@@ -1734,6 +1753,83 @@ struct ProPDFReaderEngine: View {
         saveMarkup(text: text, color: color, style: .highlight)
     }
 
+    // MARK: - Remove / Unhighlight Pipeline
+
+    /// Removes a highlight/markup annotation from the active PDF document and AnnotationStore.
+    private func removeAnnotation(id: UUID, pageIndex: Int? = nil) {
+        guard let doc = pdfViewReference?.document ?? pdfDocument else { return }
+        let store = AnnotationStore.shared
+        let existing = store.annotations(for: pdf.id).first(where: { $0.id == id })
+        let text = existing?.selectedText
+        let targetPage = pageIndex ?? existing?.pageIndex ?? currentPageIndex
+        
+        // 1. Remove native annotation from PDFPage
+        PDFAnnotationSyncBridge.shared.removeAnnotation(
+            id: id,
+            from: doc,
+            on: targetPage,
+            text: text,
+            destinationURL: resolvedURL
+        )
+        
+        // 2. Remove from AnnotationStore and SwiftData
+        store.delete(id: id, pdfID: pdf.id)
+        
+        // 3. Force page redraw
+        if let pv = pdfViewReference {
+            forcePageRedraw(pv, pageIndex: targetPage)
+        }
+        
+        showToastMessage("Highlight Removed")
+        HapticEngine.selection()
+    }
+
+    /// Unhighlights the current text selection or active snapshot
+    private func unhighlightSelection(text: String) {
+        guard let doc = pdfViewReference?.document ?? pdfDocument else { return }
+        let targetPage = activeSelectionSnapshot?.pageIndex ?? currentPageIndex
+        let store = AnnotationStore.shared
+        let pageAnnotations = store.annotations(for: pdf.id).filter { $0.pageIndex == targetPage }
+        
+        var removedCount = 0
+        for ann in pageAnnotations {
+            let isTextMatch = (ann.selectedText != nil && (ann.selectedText == text || text.contains(ann.selectedText!) || ann.selectedText!.contains(text)))
+            if isTextMatch {
+                removeAnnotation(id: ann.id, pageIndex: targetPage)
+                removedCount += 1
+            }
+        }
+        
+        if removedCount == 0, let page = doc.page(at: targetPage) {
+            let matching = page.annotations.filter { ann in
+                if let c = ann.contents, c == text || text.contains(c) || c.contains(text) {
+                    let t = ann.type ?? ""
+                    return t.contains("Highlight") || t.contains("Underline") || t.contains("StrikeOut")
+                }
+                return false
+            }
+            for ann in matching {
+                if let idStr = ann.userName, let uid = UUID(uuidString: idStr) {
+                    removeAnnotation(id: uid, pageIndex: targetPage)
+                } else {
+                    page.removeAnnotation(ann)
+                }
+                removedCount += 1
+            }
+            if let pv = pdfViewReference {
+                forcePageRedraw(pv, pageIndex: targetPage)
+            }
+            if removedCount > 0 {
+                PDFAnnotationSyncBridge.shared.scheduleDebouncedDiskSync(for: pdf.id, in: doc, at: resolvedURL)
+                showToastMessage("Highlight Removed")
+                HapticEngine.selection()
+            }
+        }
+        
+        pdfViewReference?.setCurrentSelection(nil, animate: false)
+        activeSelectionSnapshot = nil
+    }
+
     /// Repaints PDFView to display new annotation graphics smoothly without thrashing CATiledLayer.
     private func forcePageRedraw(_ pdfView: PDFView, pageIndex: Int) {
         if let page = pdfView.document?.page(at: pageIndex) {
@@ -2381,6 +2477,22 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                 view.clearSelection()
                 parent.onTextSelectionChanged(nil, nil)
                 return
+            }
+
+            // If user taps directly on an existing highlight annotation, trigger selection HUD to allow unhighlighting/editing
+            let tapLocation = gesture.location(in: view)
+            if let page = view.page(for: tapLocation, nearest: false) {
+                let pagePoint = view.convert(tapLocation, to: page)
+                if let tappedAnn = page.annotation(at: pagePoint) {
+                    let typeName = tappedAnn.type ?? ""
+                    if typeName.contains("Highlight") || typeName.contains("Underline") || typeName.contains("StrikeOut") {
+                        if let text = tappedAnn.contents, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            HapticEngine.light()
+                            parent.onTextSelectionChanged(text, nil)
+                            return
+                        }
+                    }
+                }
             }
 
             let location = gesture.location(in: view)
