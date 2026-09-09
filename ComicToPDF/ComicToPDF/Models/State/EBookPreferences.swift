@@ -89,8 +89,8 @@ class EBookPreferences: ObservableObject {
         didSet { objectWillChange.send() }
     }
 
-    // Progress display mode (cycles on tap)
-    @AppStorage("ebook_progressMode")   var progressMode: Int = 0  // 0=page, 1=chapter, 2=timeLeft
+    // Progress display mode (cycles on tap: 0=page, 1=remaining, 2=timeLeft, 3=WPM, 4=hidden)
+    @AppStorage("ebook_progressMode")   var progressMode: Int = 0
 
     // MARK: - Customizable Tap Zones Layout
     @AppStorage("tapZoneStyle") var tapZoneStyleRaw: String = TapZoneStyle.classic.rawValue
@@ -436,4 +436,37 @@ enum EBookPaginationMode: String, CaseIterable, Identifiable {
     case continuous = "Scroll"
     var id: String { rawValue }
     var icon: String { self == .paged ? "book.pages" : "arrow.up.and.down.text.horizontal" }
+}
+
+// MARK: - Reading Progress Footer Mode
+enum ReadingProgressMode: Int, CaseIterable, Identifiable, Sendable {
+    case pageAndChapter = 0
+    case pagesRemaining = 1
+    case timeRemaining  = 2
+    case readingPaceWPM = 3
+    case hidden         = 4
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .pageAndChapter: return "Page & Chapter"
+        case .pagesRemaining: return "Pages Left"
+        case .timeRemaining:  return "Time Left"
+        case .readingPaceWPM: return "Pace (WPM)"
+        case .hidden:         return "Hidden"
+        }
+    }
+
+    var displayName: String { title }
+
+    var shortTitle: String {
+        switch self {
+        case .pageAndChapter: return "Page"
+        case .pagesRemaining: return "Left"
+        case .timeRemaining:  return "Time"
+        case .readingPaceWPM: return "WPM"
+        case .hidden:         return "Off"
+        }
+    }
 }

@@ -131,8 +131,10 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
         }
 
         // If spine item (chapter) changed, reset transitioning lock and reload everything
-        if oldParent.spineItem.href != self.spineItem.href {
+        let chapterChanged = oldParent.spineItem.href != self.spineItem.href || oldParent.spineItem.id != self.spineItem.id
+        if chapterChanged {
             context.coordinator.isTransitioning = false
+            context.coordinator.computedTotalPages = 1
             context.coordinator.loadChapterAndPresent()
             return
         }
@@ -229,7 +231,7 @@ extension EBookPageCurlReader {
             self.parent = parent
             super.init()
             setupPrimaryWebView()
-            
+
             let forwardToken = NotificationCenter.default.addObserver(
                 forName: NSNotification.Name("EBookTurnPageForward"),
                 object: nil,
@@ -374,13 +376,20 @@ extension EBookPageCurlReader {
 
             Task { @MainActor in
                 guard let dir = parent.unzipDir else { return }
-                var contentURL = dir.appendingPathComponent(parent.spineItem.href)
+                var rawHref = parent.spineItem.href
+                if let anchorIdx = rawHref.firstIndex(of: "#") {
+                    rawHref = String(rawHref[..<anchorIdx])
+                }
+                var contentURL = dir.appendingPathComponent(rawHref).standardizedFileURL
                 if !FileManager.default.fileExists(atPath: contentURL.path) {
-                    if let decoded = parent.spineItem.href.removingPercentEncoding {
-                        contentURL = dir.appendingPathComponent(decoded)
+                    if let decoded = rawHref.removingPercentEncoding {
+                        contentURL = dir.appendingPathComponent(decoded).standardizedFileURL
                     }
                 }
-                guard FileManager.default.fileExists(atPath: contentURL.path) else { return }
+                guard FileManager.default.fileExists(atPath: contentURL.path) else {
+                    Logger.shared.log("EBookPageCurlReader: Content file not found at \(contentURL.path) for href \(parent.spineItem.href)", category: "EBook", type: .error)
+                    return
+                }
 
                 self.chapterBaseURL = contentURL.deletingLastPathComponent()
 
@@ -395,9 +404,11 @@ extension EBookPageCurlReader {
                            ?? ""
                 }
 
-                // Clean via SwiftReadability (bypassed for synthesized reflow HTML)
+                // Preserve native EPUB chapter markup directly to avoid stripping chapter styling & figures
                 var html: String
                 if rawHTML.contains("pdf-page-marker") || self.parent.spineItem.href.hasSuffix("reflow.html") {
+                    html = rawHTML
+                } else if rawHTML.range(of: "<body", options: .caseInsensitive) != nil {
                     html = rawHTML
                 } else {
                     let cleanArticle = SwiftReadability.parse(html: rawHTML)
@@ -515,7 +526,7 @@ extension EBookPageCurlReader {
             let snapshot = pageSnapshots[clampedIndex]
             let hit = snapshot != nil
             ReaderEngineDiagnosticLogger.logPrecache(hit: hit, pageIndex: clampedIndex, cachedPagesCount: pageSnapshots.count)
-            
+
             let vc = EBookPageContentViewController(
                 pageIndex: clampedIndex,
                 snapshot: snapshot,
@@ -532,7 +543,10 @@ extension EBookPageCurlReader {
         ) -> UIViewController? {
             guard let contentVC = viewController as? EBookPageContentViewController else { return nil }
             let prevIndex = contentVC.pageIndex - 1
-            if prevIndex < 0 { return nil }
+            if prevIndex < 0 {
+                // Return transition page to previous chapter to allow backward curl
+                return makeBlankPageViewController(for: -1)
+            }
             return makePageViewController(for: prevIndex)
         }
 
@@ -548,7 +562,8 @@ extension EBookPageCurlReader {
                 if isDualPageMode && nextIndex % 2 == 1 {
                     return makeBlankPageViewController(for: nextIndex)
                 }
-                return nil
+                // Return transition page to next chapter to allow forward curl
+                return makeBlankPageViewController(for: computedTotalPages)
             }
             return makePageViewController(for: nextIndex)
         }
@@ -623,6 +638,13 @@ extension EBookPageCurlReader {
 
             let newPageIndex = currentVC.pageIndex
             if completed {
+                if newPageIndex >= computedTotalPages {
+                    parent.onNext()
+                    return
+                } else if newPageIndex < 0 {
+                    parent.onPrev()
+                    return
+                }
                 lastCompletedControllerIndex = newPageIndex
                 currentPageIndex = newPageIndex
                 parent.currentPage = newPageIndex
@@ -924,7 +946,7 @@ extension EBookPageCurlReader {
                 self?.parent.webViewRef = webView
             }
             restoreHighlights(in: webView)
-            
+
             // Take initial snapshot of active page once loaded
             takePageSnapshot(for: currentPageIndex)
         }
@@ -1289,10 +1311,10 @@ extension EBookPageCurlReader {
             @font-face { font-family: 'Source Serif 4'; src: local('SourceSerif4-Regular'); font-weight: bold; font-style: normal; }
             @font-face { font-family: 'Source Serif 4'; src: local('SourceSerif4-Italic'); font-weight: normal; font-style: italic; }
             @font-face { font-family: 'Source Serif 4'; src: local('SourceSerif4-Italic'); font-weight: bold; font-style: italic; }
-            *, *::before, *::after { 
-                box-sizing: border-box; 
-                -webkit-tap-highlight-color: transparent; 
-                scroll-behavior: auto !important; 
+            *, *::before, *::after {
+                box-sizing: border-box;
+                -webkit-tap-highlight-color: transparent;
+                scroll-behavior: auto !important;
                 -webkit-overflow-scrolling: auto !important;
             }
             ::selection {
@@ -1367,7 +1389,7 @@ extension EBookPageCurlReader {
                 margin: 0 !important;
                 box-sizing: border-box !important;
                 display: block !important;
-                position: absolute !important;
+                position: relative !important;
                 top: 0 !important; left: 0 !important;
                 padding-top: \(paddingTop)px !important;
                 padding-bottom: \(paddingBottom)px !important;
@@ -1375,8 +1397,8 @@ extension EBookPageCurlReader {
                 padding-right: \(paddingRight)px !important;
                 width: 100% !important;
                 height: 100% !important;
-                max-width: 100% !important;
-                overflow: visible !important;
+                max-height: 100% !important;
+                overflow: hidden !important;
                 -webkit-user-select: text !important;
                 user-select: text !important;
                 \(pagedCSS)
@@ -1402,11 +1424,11 @@ extension EBookPageCurlReader {
                 background-color: transparent !important;
                 background: transparent !important;
             }
-            div, section, article, main, p, span, blockquote {
+            #inksync-viewport > div, #inksync-viewport > section, #inksync-viewport > article, #inksync-viewport > main, p, span, blockquote {
                 max-height: none !important;
                 overflow: visible !important;
             }
-            div, section, article, main { height: auto !important; }
+            #inksync-viewport > div, #inksync-viewport > section, #inksync-viewport > article, #inksync-viewport > main { height: auto !important; }
             div, section, article, main, p, blockquote {
                 display: block !important;
                 position: static !important;
@@ -1489,12 +1511,33 @@ extension EBookPageCurlReader {
                 if (pageStep <= 0) return 1;
                 var vp = document.getElementById('inksync-viewport');
                 var sv = document.scrollingElement || document.documentElement;
-                var scrollW = vp ? vp.scrollWidth : Math.max(sv.scrollWidth, document.body.scrollWidth);
+                var scrollW = Math.max(vp ? vp.scrollWidth : 0, sv ? sv.scrollWidth : 0, document.body.scrollWidth);
+
+                // Fallback: If scrollWidth was clipped, use bounding rect of deepest elements
+                if (scrollW <= pageStep && vp && vp.lastElementChild) {
+                    try {
+                        var range = document.createRange();
+                        range.selectNodeContents(vp.lastElementChild);
+                        var rects = range.getClientRects();
+                        if (rects.length > 0) {
+                            var spreadIndex = _isMultiCol ? Math.floor(_targetPage / 2) : _targetPage;
+                            var currentShift = spreadIndex * pageStep;
+                            var rightmost = 0;
+                            for (var i = 0; i < rects.length; i++) {
+                                var r = rects[i].right + currentShift;
+                                if (r > rightmost) rightmost = r;
+                            }
+                            if (rightmost > scrollW) {
+                                scrollW = rightmost;
+                            }
+                        }
+                    } catch(e) {}
+                }
+
                 var colWidth = _isMultiCol ? (pageStep / 2) : pageStep;
-                var total = Math.floor((scrollW + 5) / colWidth);
-                var remainder = (scrollW + 5) % colWidth;
-                if (remainder > 35) {
-                    total += 1;
+                var total = Math.max(1, Math.ceil((scrollW - 10) / colWidth));
+                if (total === 1 && scrollW > colWidth + 20) {
+                    total = 2;
                 }
                 _totalPages = Math.max(1, total);
                 if (_targetPage >= 99999 || _targetPage >= _totalPages) {
@@ -1893,7 +1936,7 @@ class EBookPageContentViewController: UIViewController {
 
         let prefs = EBookPreferences.shared
         let bgColor = UIColor(hex: prefs.activeTheme.cssBackground) ?? .black
-        view.backgroundColor = snapshot != nil ? bgColor : .clear
+        view.backgroundColor = bgColor
 
         // Setup snapshot image view (0ms instant page rendering for 3D curl)
         let iv = UIImageView(frame: view.bounds)
@@ -1901,7 +1944,7 @@ class EBookPageContentViewController: UIViewController {
         iv.contentMode = .scaleToFill
         iv.clipsToBounds = true
         iv.image = snapshot
-        iv.backgroundColor = snapshot != nil ? bgColor : .clear
+        iv.backgroundColor = bgColor
         iv.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(iv)

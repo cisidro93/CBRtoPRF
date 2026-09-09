@@ -1103,6 +1103,20 @@ struct EBookSettingsPanel: View {
                 .padding(.vertical, 10)
             }
 
+            // Reading Progress Tracker Mode
+            ReaderSettingsSection(title: "Progress Tracker", icon: "chart.bar") {
+                VStack(spacing: 8) {
+                    Picker("Progress Mode", selection: $prefs.progressMode) {
+                        ForEach(ReadingProgressMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
+            }
+
             if isPDF {
                 ReaderSettingsSection(title: "PDF Layout Options", icon: "doc.richtext") {
                     ReaderSettingsToggleRow(
@@ -1160,6 +1174,10 @@ struct ReaderSettingsSection<Content: View>: View {
                 content()
             }
             .background(Color.inkSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+            )
         }
     }
 }

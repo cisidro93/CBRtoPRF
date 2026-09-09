@@ -212,7 +212,7 @@ struct EBookReaderView: View {
                                         activeFootnoteText = text
                                     }
                                 )
-                                .id("ebook_\(prefs.pageTurnStyle.rawValue)")
+                                .id("ebook_\(currentIndex)_\(prefs.pageTurnStyle.rawValue)")
                             } else {
                                 // ── Scroll Mode (continuous vertical) ──────────────────
                                 EBookWebReader(
@@ -257,6 +257,7 @@ struct EBookReaderView: View {
                                         activeFootnoteText = text
                                     }
                                 )
+                                .id("ebook_web_\(currentIndex)")
                             }
                             
                             EdgeBrightnessGestureZone()
@@ -734,6 +735,7 @@ struct EBookReaderView: View {
             attemptSeriesContinuation()
             return
         }
+        HapticEngine.medium()
         isGoingForward = true
         chapterPage = 0
         chapterScrollFraction = 0.0
@@ -769,6 +771,7 @@ struct EBookReaderView: View {
 
     private func prevChapter() {
         guard currentIndex > 0 else { return }
+        HapticEngine.medium()
         isGoingForward = false
         chapterPage = 99999 // Signal JS to jump to END of the previous chapter
         chapterScrollFraction = 1.0
@@ -1758,10 +1761,14 @@ struct EBookWebReader: View {
 
     private func loadChapter() async {
         guard let dir = unzipDir else { return }
-        var contentURL = dir.appendingPathComponent(spineItem.href)
+        var rawHref = spineItem.href
+        if let anchorIdx = rawHref.firstIndex(of: "#") {
+            rawHref = String(rawHref[..<anchorIdx])
+        }
+        var contentURL = dir.appendingPathComponent(rawHref).standardizedFileURL
         if !FileManager.default.fileExists(atPath: contentURL.path) {
-            if let decoded = spineItem.href.removingPercentEncoding {
-                contentURL = dir.appendingPathComponent(decoded)
+            if let decoded = rawHref.removingPercentEncoding {
+                contentURL = dir.appendingPathComponent(decoded).standardizedFileURL
             }
         }
         guard FileManager.default.fileExists(atPath: contentURL.path) else { return }
@@ -1780,9 +1787,19 @@ struct EBookWebReader: View {
                    ?? ""
         }
         
-        // Generalize cleanup via SwiftReadability
-        let cleanArticle = SwiftReadability.parse(html: rawHTML)
-        var html = cleanArticle.content
+        // Preserve native markup if standard HTML, otherwise clean with SwiftReadability
+        var html: String
+        if rawHTML.contains("pdf-page-marker") || spineItem.href.hasSuffix("reflow.html") {
+            html = rawHTML
+        } else if rawHTML.range(of: "<body", options: .caseInsensitive) != nil {
+            html = rawHTML
+        } else {
+            let cleanArticle = SwiftReadability.parse(html: rawHTML)
+            html = cleanArticle.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if html.isEmpty || html.count < 20 {
+                html = rawHTML
+            }
+        }
         
         // Wrap with viewport
         html = EBookWebReader.wrapHTMLBodyWithViewport(html)

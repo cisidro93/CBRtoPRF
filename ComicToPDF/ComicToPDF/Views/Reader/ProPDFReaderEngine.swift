@@ -67,7 +67,7 @@ struct ProPDFReaderEngine: View {
     @State private var loadFailed: Bool = false
     @State private var loadErrorMessage: String = ""
     @State private var loadDiagnosticReport: DocumentDiagnosticReport? = nil
-    
+
     // Encrypted / Locked PDF State
     @State private var isDocumentLocked: Bool = false
     @State private var showingPasswordPrompt: Bool = false
@@ -119,7 +119,7 @@ struct ProPDFReaderEngine: View {
     private func applyCropInsets(_ insets: CodableCropInsets) {
         guard let doc = pdfDocument else { return }
         self.activeCropInsets = insets
-        
+
         if insets.modeRaw == "none" {
             isCroppedMode = false
             if let pv = pdfViewReference {
@@ -130,23 +130,23 @@ struct ProPDFReaderEngine: View {
             return
         } else if insets.modeRaw == "smartAuto" {
             isCroppedMode = true
-            
+
             // KOReader / k2pdfopt Parity: Document-Wide Uniform Content Bounds
             // Sample representative pages across the document to compute the composite content box.
             let total = doc.pageCount
             let sampleCount = min(25, total)
             let step = max(1, total / sampleCount)
-            
+
             var sampledLeftMargins: [CGFloat] = []
             var sampledRightMargins: [CGFloat] = []
             var sampledTopMargins: [CGFloat] = []
             var sampledBottomMargins: [CGFloat] = []
-            
+
             for idx in stride(from: 0, to: total, by: step) {
                 guard let page = doc.page(at: idx) else { continue }
                 let mediaBox = page.bounds(for: .mediaBox)
                 guard mediaBox.width > 50 && mediaBox.height > 50 else { continue }
-                
+
                 // If page has digital text layer, extract text bounding rect directly
                 if let selection = page.selection(for: mediaBox) {
                     let textRect = selection.bounds(for: page)
@@ -155,7 +155,7 @@ struct ProPDFReaderEngine: View {
                         let rightRatio = max(0, (mediaBox.maxX - textRect.maxX) / mediaBox.width)
                         let bottomRatio = max(0, (textRect.minY - mediaBox.minY) / mediaBox.height)
                         let topRatio = max(0, (mediaBox.maxY - textRect.maxY) / mediaBox.height)
-                        
+
                         sampledLeftMargins.append(leftRatio)
                         sampledRightMargins.append(rightRatio)
                         sampledBottomMargins.append(bottomRatio)
@@ -163,23 +163,23 @@ struct ProPDFReaderEngine: View {
                     }
                 }
             }
-            
+
             // Baseline sensitivity fallback if document has few or no digital text layers (scanned books)
             let baseSensitivity = max(0.03, min(0.09, prefs.autoCropSensitivity * 0.40))
-            
+
             // Calculate safe minimal margins across all sampled pages with a protective 12pt cushion
             let safeLeftMargin: CGFloat
             let safeRightMargin: CGFloat
             let safeTopMargin: CGFloat
             let safeBottomMargin: CGFloat
-            
+
             if !sampledLeftMargins.isEmpty {
                 // Use the minimum margin found across all pages so NO text is ever clipped on ANY page.
                 let rawMinLeft = max(0.01, (sampledLeftMargins.min() ?? baseSensitivity) - 0.02)
                 let rawMinRight = max(0.01, (sampledRightMargins.min() ?? baseSensitivity) - 0.02)
                 let rawMinTop = max(0.01, (sampledTopMargins.min() ?? baseSensitivity) - 0.02)
                 let rawMinBottom = max(0.01, (sampledBottomMargins.min() ?? baseSensitivity) - 0.02)
-                
+
                 // Symmetrical horizontal margin ensures identical aspect ratio and stationary baseline across flips
                 let horiz = min(rawMinLeft, rawMinRight)
                 safeLeftMargin = min(0.18, max(baseSensitivity, horiz))
@@ -192,7 +192,7 @@ struct ProPDFReaderEngine: View {
                 safeTopMargin = baseSensitivity
                 safeBottomMargin = baseSensitivity
             }
-            
+
             // 1. Immediately apply to visible window (current page +- 8) for zero UI lag (<20ms)
             let curPage = currentPageIndex
             let visibleStart = max(0, curPage - 8)
@@ -217,13 +217,13 @@ struct ProPDFReaderEngine: View {
                     }
                 }
             }
-            
+
             if let pv = pdfViewReference {
                 pv.displayBox = .cropBox
                 pv.autoScales = true
                 pv.layoutDocumentView()
             }
-            
+
             // 2. Offload remaining pages asynchronously so 1400-page books never stutter the main thread
             if total > 0 {
                 Task { @MainActor in
@@ -704,9 +704,9 @@ struct ProPDFReaderEngine: View {
                         .font(.system(size: 11, weight: .bold))
                     Text("\(scalePct)%")
                         .font(.system(size: 12, weight: .bold, design: .rounded))
-                    
+
                     Divider().frame(height: 12)
-                    
+
                     Button {
                         HapticEngine.selection()
                         prefs.isZoomLocked.toggle()
@@ -813,7 +813,7 @@ struct ProPDFReaderEngine: View {
                             self.pendingLinkPreview = nil
                         }
                     }
-                
+
                 HyperlinkPreviewHUD(
                     targetPageIndex: preview.pageIndex,
                     targetPage: preview.targetPage,
@@ -1136,7 +1136,7 @@ struct ProPDFReaderEngine: View {
             let sourcePDF = self.pdf
             let resolvedURL: URL
             var accessedURL: URL? = nil
-            
+
             if case .linked(let bm) = sourcePDF.sourceMode,
                let url = try? BookmarkResolver.shared.resolve(bm) {
                 let didAccess = url.startAccessingSecurityScopedResource()
@@ -1148,14 +1148,14 @@ struct ProPDFReaderEngine: View {
                 resolvedURL = sandboxURL
                 if didAccess { accessedURL = sandboxURL }
             }
-            
+
             var loaded = PDFDocument(url: resolvedURL)
             if loaded == nil && resolvedURL != sourcePDF.url {
                 let didAccessSource = sourcePDF.url.startAccessingSecurityScopedResource()
                 if didAccessSource && accessedURL == nil { accessedURL = sourcePDF.url }
                 loaded = PDFDocument(url: sourcePDF.url)
             }
-            
+
             // Fail-safe 1: Memory-mapped byte buffer (bypasses direct file-path sandbox resolution lockouts)
             if loaded == nil {
                 if let data = try? Data(contentsOf: resolvedURL, options: .alwaysMapped) {
@@ -1164,7 +1164,7 @@ struct ProPDFReaderEngine: View {
                     loaded = PDFDocument(data: data)
                 }
             }
-            
+
             // Fail-safe 2: Check App Group containers directly if file was staged from Share Extension
             if loaded == nil {
                 let filename = sourcePDF.url.lastPathComponent
@@ -1192,12 +1192,12 @@ struct ProPDFReaderEngine: View {
                     if loaded != nil { break }
                 }
             }
-            
+
             // Automatically unlock encrypted PDFs with empty passwords if locked
             if let doc = loaded, doc.isLocked {
                 doc.unlock(withPassword: "")
             }
-            
+
             if let doc = loaded {
                 if doc.isLocked {
                     await MainActor.run {
@@ -1211,7 +1211,7 @@ struct ProPDFReaderEngine: View {
                     }
                     return
                 }
-                
+
                 let savedIndex = await MainActor.run {
                     ReaderProgressTracker.shared.progress(for: sourcePDF.id)?.currentPageIndex ?? 0
                 }
@@ -1227,10 +1227,10 @@ struct ProPDFReaderEngine: View {
                     let initialCrop = savedCrop ?? (self.prefs.defaultCropModeRaw == "smartAuto" ? .smartAuto : .none)
                     self.applyCropInsets(initialCrop)
                     self.extractAmbientColor(for: self.currentPageIndex)
-                    
+
                     // Ingest and render all existing InkSync Pro highlights, notes, and ink from AnnotationStore onto the live document
                     PDFAnnotationSyncBridge.shared.applyStoreAnnotations(for: sourcePDF.id, to: doc)
-                    
+
                     // Ingest native third-party PDF annotations asynchronously so document opens in <100ms
                     Task { @MainActor in
                         let imported = PDFAnnotationSyncBridge.shared.importNativeAnnotations(from: doc, for: sourcePDF.id)
@@ -1287,7 +1287,7 @@ struct ProPDFReaderEngine: View {
             guard !Task.isCancelled else { return }
             let thumb = page.thumbnail(of: CGSize(width: 32, height: 32), for: .cropBox)
             guard let cgImage = thumb.cgImage else { return }
-            
+
             let thumbSize = 32
             let colorSpace = CGColorSpaceCreateDeviceRGB()
             let bytesPerRow = thumbSize * 4
@@ -1533,7 +1533,13 @@ struct ProPDFReaderEngine: View {
     private func saveMarkup(text: String, color: PDFHighlightColor, style: AnnotationMarkupStyle = .highlight) {
         // Build the RGBA UIColor directly — never via hex round-trip which can
         // silently collapse HSL saturation for colors like Emerald or Electric Blue.
-        let highlightColor = color.directHighlightUIColor
+        let highlightColor: UIColor
+        switch style {
+        case .underline, .strikeOut:
+            highlightColor = color.uiColor
+        case .highlight:
+            highlightColor = color.directHighlightUIColor
+        }
         let annotationID = UUID()
         var didAddNative = false
         var savedBounds: CodableCGRect? = nil
@@ -1566,17 +1572,19 @@ struct ProPDFReaderEngine: View {
             targetPageIndex = snapshot.pageIndex
             savedBounds = snapshot.normalizedBounds
             if let doc = activeDoc, let page = doc.page(at: snapshot.pageIndex) {
+                page.displaysAnnotations = true
                 let validRects = snapshot.lines.map(\.bounds).filter { $0 != .zero && $0.width > 2 && $0.height > 2 }
                 if !validRects.isEmpty {
-                    let unionBox = PDFHighlightGeometryHelper.unionBounds(for: validRects)
-                    let ann = PDFAnnotation(bounds: unionBox, forType: nativeType, withProperties: nil)
-                    ann.userName = annotationID.uuidString
-                    ann.color = highlightColor
-                    ann.contents = text
-                    ann.shouldDisplay = true
-                    ann.shouldPrint = true
-                    ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects)
-                    page.addAnnotation(ann)
+                    for lineRect in validRects {
+                        let ann = PDFAnnotation(bounds: lineRect, forType: nativeType, withProperties: nil)
+                        ann.userName = annotationID.uuidString
+                        ann.color = highlightColor
+                        ann.contents = text
+                        ann.shouldDisplay = true
+                        ann.shouldPrint = true
+                        ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: lineRect)
+                        page.addAnnotation(ann)
+                    }
                     didAddNative = true
                 }
             }
@@ -1585,6 +1593,7 @@ struct ProPDFReaderEngine: View {
         // ── Path 2: Decompose current PDFView selection by line ───────────────────
         if !didAddNative, let pdfView = pdfViewReference, let selection = pdfView.currentSelection {
             for page in selection.pages {
+                page.displaysAnnotations = true
                 if let doc = pdfView.document {
                     targetPageIndex = doc.index(for: page)
                 }
@@ -1592,7 +1601,7 @@ struct ProPDFReaderEngine: View {
                 let targetLines = lines.isEmpty ? [selection] : lines
                 let validRects = targetLines.compactMap { $0.bounds(for: page) }.filter { $0 != .zero && $0.width > 2 && $0.height > 2 }
                 guard !validRects.isEmpty else { continue }
-                
+
                 let unionBox = PDFHighlightGeometryHelper.unionBounds(for: validRects)
                 let pageBounds = page.bounds(for: .cropBox)
                 if pageBounds.width > 0, pageBounds.height > 0, savedBounds == nil {
@@ -1603,27 +1612,30 @@ struct ProPDFReaderEngine: View {
                         height: Double(unionBox.height / pageBounds.height)
                     )
                 }
-                let ann = PDFAnnotation(bounds: unionBox, forType: nativeType, withProperties: nil)
-                ann.userName = annotationID.uuidString
-                ann.color = highlightColor
-                ann.contents = text
-                ann.shouldDisplay = true
-                ann.shouldPrint = true
-                ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects)
-                page.addAnnotation(ann)
+                for lineRect in validRects {
+                    let ann = PDFAnnotation(bounds: lineRect, forType: nativeType, withProperties: nil)
+                    ann.userName = annotationID.uuidString
+                    ann.color = highlightColor
+                    ann.contents = text
+                    ann.shouldDisplay = true
+                    ann.shouldPrint = true
+                    ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: lineRect)
+                    page.addAnnotation(ann)
+                }
                 didAddNative = true
             }
         }
 
         // ── Path 3: Text-search fallback ──────────────────────────────────────────
         if !didAddNative, let doc = activeDoc, let page = doc.page(at: targetPageIndex) {
+            page.displaysAnnotations = true
             let matches = doc.findString(text, withOptions: .caseInsensitive)
             for match in matches where match.pages.contains(page) {
                 let lines = match.selectionsByLine()
                 let targetLines = lines.isEmpty ? [match] : lines
                 let validRects = targetLines.compactMap { $0.bounds(for: page) }.filter { $0 != .zero && $0.width > 2 && $0.height > 2 }
                 guard !validRects.isEmpty else { continue }
-                
+
                 let unionBox = PDFHighlightGeometryHelper.unionBounds(for: validRects)
                 let pageBounds = page.bounds(for: .cropBox)
                 if pageBounds.width > 0, pageBounds.height > 0, savedBounds == nil {
@@ -1634,14 +1646,16 @@ struct ProPDFReaderEngine: View {
                         height: Double(unionBox.height / pageBounds.height)
                     )
                 }
-                let ann = PDFAnnotation(bounds: unionBox, forType: nativeType, withProperties: nil)
-                ann.userName = annotationID.uuidString
-                ann.color = highlightColor
-                ann.contents = text
-                ann.shouldDisplay = true
-                ann.shouldPrint = true
-                ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects)
-                page.addAnnotation(ann)
+                for lineRect in validRects {
+                    let ann = PDFAnnotation(bounds: lineRect, forType: nativeType, withProperties: nil)
+                    ann.userName = annotationID.uuidString
+                    ann.color = highlightColor
+                    ann.contents = text
+                    ann.shouldDisplay = true
+                    ann.shouldPrint = true
+                    ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: lineRect)
+                    page.addAnnotation(ann)
+                }
                 didAddNative = true
                 break
             }
@@ -1649,6 +1663,7 @@ struct ProPDFReaderEngine: View {
 
         // ── Path 4: Fallback to savedBounds bounding box ─────────────────────────
         if !didAddNative, let doc = activeDoc, let page = doc.page(at: targetPageIndex), let b = savedBounds {
+            page.displaysAnnotations = true
             let pageBounds = page.bounds(for: .cropBox)
             let rect = CGRect(
                 x: pageBounds.minX + (b.x * pageBounds.width),
@@ -1703,10 +1718,20 @@ struct ProPDFReaderEngine: View {
 
     /// Repaints PDFView to display new annotation graphics smoothly without thrashing CATiledLayer.
     private func forcePageRedraw(_ pdfView: PDFView, pageIndex: Int) {
+        pdfView.displaysAnnotations = true
         pdfView.layoutDocumentView()
         pdfView.setNeedsDisplay()
+        pdfView.documentView?.setNeedsDisplay()
+
+        func invalidateAllLayers(_ v: UIView) {
+            v.setNeedsDisplay()
+            v.layer.setNeedsDisplay()
+            for sub in v.subviews {
+                invalidateAllLayers(sub)
+            }
+        }
         if let docView = pdfView.documentView {
-            docView.setNeedsDisplay()
+            invalidateAllLayers(docView)
         }
     }
 
@@ -1983,6 +2008,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
 
         // Assign document AFTER display configuration so PDFKit lays out correctly
         pdfView.document = document
+        pdfView.displaysAnnotations = true
         pdfView.autoScales = true
         pdfView.minScaleFactor = 0.25
         pdfView.maxScaleFactor = 8.0
@@ -2055,6 +2081,9 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         if uiView.document != document {
             uiView.document = document
             uiView.autoScales = true
+        }
+        if !uiView.displaysAnnotations {
+            uiView.displaysAnnotations = true
         }
 
         let prefs = EBookPreferences.shared
@@ -2202,10 +2231,10 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                let str = charSel.string, !str.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return (charSel, point)
             }
-            
+
             let yDeltas: [CGFloat] = [-8, 8, -16, 16, -24, 24]
             let xDeltas: [CGFloat] = [0, -12, 12, -24, 24]
-            
+
             for dy in yDeltas {
                 for dx in xDeltas {
                     let probe = CGPoint(x: point.x + dx, y: point.y + dy)
@@ -2226,15 +2255,15 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
             switch gesture.state {
             case .began:
                 guard let page = pdfView.page(for: locationInView, nearest: true) else { return }
-                
+
                 // If the page has zero text glyphs (scanned comic or scanned document), switch to Pencil Highlighter
                 if page.numberOfCharacters == 0 {
                     parent.onScannedPageDetected?()
                     return
                 }
-                
+
                 let locationInPage = pdfView.convert(locationInView, to: page)
-                
+
                 if let match = findWordSelection(at: locationInPage, on: page) {
                     glideStartPoint = match.point
                     glideStartPage = page
@@ -2253,10 +2282,10 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                       let startPage = glideStartPage,
                       let currentTargetPage = pdfView.page(for: locationInView, nearest: true),
                       currentTargetPage == startPage else { return }
-                
+
                 let rawPointInPage = pdfView.convert(locationInView, to: startPage)
                 let currentPointInPage = findWordSelection(at: rawPointInPage, on: startPage)?.point ?? rawPointInPage
-                
+
                 if let rangeSelection = startPage.selection(from: startPoint, to: currentPointInPage) {
                     if let endWord = startPage.selectionForWord(at: currentPointInPage) {
                         rangeSelection.add(endWord)
@@ -2264,13 +2293,13 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                     if let startWord = glideStartWord {
                         rangeSelection.add(startWord)
                     }
-                    
+
                     let words = rangeSelection.string?.split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).count ?? 0
                     if words != lastGlideWordCount && words > 0 {
                         lastGlideWordCount = words
                         HapticEngine.selection()
                     }
-                    
+
                     pdfView.setCurrentSelection(rangeSelection, animate: false)
                 }
 
@@ -2376,11 +2405,11 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                     // Zoom to fit column width
                     let colWidth = targetCol.rect.width
                     let desiredScale = max(fitScale * 1.2, min(fitScale * 4.0, (pdfView.bounds.width - 24.0) / max(1, colWidth)))
-                    
+
                     UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0, options: [.curveEaseOut]) {
                         pdfView.scaleFactor = desiredScale
                         self.userCustomZoomScale = desiredScale
-                        
+
                         // Center horizontally on column
                         let colCenter = CGPoint(x: targetCol.rect.midX, y: targetCol.rect.maxY)
                         let viewPoint = pdfView.convert(colCenter, from: page)
@@ -2451,7 +2480,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                 var linesInfo: [PDFSelectionLine] = []
                 var pageIndex = parent.currentPageIndex
                 var normBounds: CodableCGRect? = nil
-                
+
                 if let firstPage = selection.pages.first, let doc = pdfView.document {
                     pageIndex = doc.index(for: firstPage)
                     let pageBounds = firstPage.bounds(for: .cropBox)

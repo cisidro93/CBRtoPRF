@@ -11,10 +11,10 @@ struct InksyncProgressFooterView: View {
     var isBookSection: Bool = false // True if dividing an EPUB spine
     let estimatedMinutesLeft: Int?
     var accentColor: Color = Color(hex: "#7B5EA7")
-    
+
     @ObservedObject private var prefs = EBookPreferences.shared
     @Environment(\.colorScheme) private var colorScheme
-    
+
     private var progressPercentage: Int {
         if isBookSection && chapterTotalPages > 1 && totalPages > 0 {
             let sectionFraction = Double(max(0, currentPage - 1)) / Double(totalPages)
@@ -25,25 +25,25 @@ struct InksyncProgressFooterView: View {
             return Int((Double(min(totalPages, max(1, currentPage))) / Double(max(1, totalPages))) * 100)
         }
     }
-    
+
     private var sanitizedChapterPage: Int {
         if chapterPage >= 99900 {
             return max(0, chapterTotalPages - 1)
         }
         return min(max(0, chapterPage), max(0, chapterTotalPages - 1))
     }
-    
+
     private var pagesLeftInChapter: Int {
         max(0, chapterTotalPages - (sanitizedChapterPage + 1))
     }
-    
+
     private var pagesLeftInBook: Int {
         max(0, totalPages - currentPage)
     }
-    
+
     private var primaryText: String {
         let trimmedTitle = chapterTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         switch prefs.progressMode {
         case 1:
             // Mode 1: Pages left
@@ -94,51 +94,64 @@ struct InksyncProgressFooterView: View {
             }
         }
     }
-    
+
     var body: some View {
         VStack {
             Spacer()
             HStack {
-                HStack(spacing: 8) {
-                    // Pulsing/glowing active status indicator dot
-                    Circle()
-                        .fill(accentColor)
-                        .frame(width: 5, height: 5)
-                        .shadow(color: accentColor.opacity(0.6), radius: 3, x: 0, y: 0)
-                    
-                    Text(primaryText)
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(prefs.activeTheme.foreground(colorScheme: colorScheme).opacity(0.65))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: 240, alignment: .leading)
-                    
-                    if prefs.progressMode != 2 && prefs.progressMode != 3 {
-                        Text("\(progressPercentage)%")
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
-                            .foregroundStyle(accentColor.opacity(0.85))
+                if prefs.progressMode == ReadingProgressMode.hidden.rawValue || prefs.progressMode == 4 {
+                    // Invisible 140x44pt bottom-left tap zone so tapping unhides the tracker
+                    Color.clear
+                        .frame(width: 140, height: 44)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            HapticEngine.selection()
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                                prefs.progressMode = 0
+                            }
+                        }
+                } else {
+                    HStack(spacing: 8) {
+                        // Pulsing/glowing active status indicator dot
+                        Circle()
+                            .fill(accentColor)
+                            .frame(width: 5, height: 5)
+                            .shadow(color: accentColor.opacity(0.6), radius: 3, x: 0, y: 0)
+
+                        Text(primaryText)
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(prefs.activeTheme.foreground(colorScheme: colorScheme).opacity(colorScheme == .dark ? 0.78 : 0.88))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: 240, alignment: .leading)
+
+                        if prefs.progressMode != 2 && prefs.progressMode != 3 {
+                            Text("\(progressPercentage)%")
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .foregroundStyle(accentColor.opacity(0.85))
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(
+                        Capsule()
+                            .fill(prefs.activeTheme.background(colorScheme: colorScheme).opacity(colorScheme == .dark ? 0.85 : 0.92))
+                            .background(.ultraThinMaterial, in: Capsule())
+                    )
+                    .overlay(
+                        Capsule()
+                            .stroke(colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08), lineWidth: 0.5)
+                    )
+                    .shadow(color: colorScheme == .dark ? Color.black.opacity(0.28) : Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
+                    .contentShape(Capsule())
+                    .onTapGesture {
+                        HapticEngine.selection()
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                            prefs.progressMode = (prefs.progressMode + 1) % 5
+                        }
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(
-                    Capsule()
-                        .fill(prefs.activeTheme.background(colorScheme: colorScheme).opacity(0.85))
-                        .background(.ultraThinMaterial, in: Capsule())
-                )
-                .overlay(
-                    Capsule()
-                        .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-                )
-                .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 3)
-                .contentShape(Capsule())
-                .onTapGesture {
-                    HapticEngine.selection()
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
-                        prefs.progressMode = (prefs.progressMode + 1) % 4
-                    }
-                }
-                
+
                 Spacer()
             }
             .padding(.horizontal, 16)

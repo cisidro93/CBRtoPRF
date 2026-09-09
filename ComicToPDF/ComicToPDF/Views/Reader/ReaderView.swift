@@ -1574,23 +1574,24 @@ struct PDFKitView: UIViewRepresentable {
             // PDFSelection can span multiple pages — iterate each
             let pages = selection.pages
             for page in pages {
+                page.displaysAnnotations = true
                 let lineSelections = selection.selectionsByLine()
                 let targetLines = lineSelections.isEmpty ? [selection] : lineSelections
                 let validRects = targetLines.compactMap { $0.bounds(for: page) }.filter { $0 != .zero && $0.width > 2 && $0.height > 2 }
                 guard !validRects.isEmpty else { continue }
 
-                let unionBox = PDFHighlightGeometryHelper.unionBounds(for: validRects)
-                guard unionBox.width > 2 && unionBox.height > 2 else { continue }
-
-                let annotation = PDFAnnotation(bounds: unionBox, forType: .highlight, withProperties: nil)
-                annotation.color = UIColor.systemYellow.withAlphaComponent(0.45)
-                annotation.contents = selectedText
-                annotation.shouldDisplay = true
-                annotation.shouldPrint = true
-                annotation.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects)
-                page.addAnnotation(annotation)
+                for lineRect in validRects {
+                    let annotation = PDFAnnotation(bounds: lineRect, forType: .highlight, withProperties: nil)
+                    annotation.color = UIColor.systemYellow.withAlphaComponent(0.55)
+                    annotation.contents = selectedText
+                    annotation.shouldDisplay = true
+                    annotation.shouldPrint = true
+                    annotation.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: lineRect)
+                    page.addAnnotation(annotation)
+                }
             }
 
+            pdfView.displaysAnnotations = true
             pdfView.clearSelection()
             pdfView.layoutDocumentView()
             pdfView.setNeedsDisplay()
