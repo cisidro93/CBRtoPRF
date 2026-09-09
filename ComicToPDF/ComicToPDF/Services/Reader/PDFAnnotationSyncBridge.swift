@@ -3,42 +3,15 @@ import PDFKit
 import PencilKit
 import SwiftUI
 
-// MARK: - Thread-Safe PDF Disk Debouncer
-
-private actor PDFDiskDebouncer {
-    private var pendingTasks: [UUID: Task<Void, Never>] = [:]
-    
-    func schedule(
-        id: UUID,
-        delaySeconds: Double = 3.0,
-        operation: @Sendable @escaping () async -> Void
-    ) {
-        pendingTasks[id]?.cancel()
-        pendingTasks[id] = Task {
-            do {
-                try await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
-                guard !Task.isCancelled else { return }
-                await operation()
-            } catch {
-                // Task cancelled
-            }
-        }
-    }
-    
-    func cancel(id: UUID) {
-        pendingTasks[id]?.cancel()
-        pendingTasks.removeValue(forKey: id)
-    }
-}
-
 // MARK: - Native PDF Annotation Interoperability Bridge
 
 /// Bi-directional synchronization service bridging InkSync Pro's `AnnotationStore`
 /// with native standard Adobe/ISO 32000 PDF annotations (`/Ink`, `/Highlight`, `/Text`).
-final class PDFAnnotationSyncBridge: Sendable {
+@MainActor
+final class PDFAnnotationSyncBridge {
     
     static let shared = PDFAnnotationSyncBridge()
-    private let debouncer = PDFDiskDebouncer()
+    private var pendingDebounceTasks: [UUID: Task<Void, Never>] = [:]
     
     init() {}
     
@@ -187,24 +160,29 @@ final class PDFAnnotationSyncBridge: Sendable {
     
     /// Non-blocking, debounced disk persistence for interactive highlighting.
     /// Defers PDF binary serialization to a trailing background task after user interactions cease.
-    @MainActor
     func scheduleDebouncedDiskSync(for pdfID: UUID, in document: PDFDocument, at destinationURL: URL? = nil) {
         guard let targetURL = destinationURL ?? document.documentURL else { return }
         
-        Task {
-            await debouncer.schedule(id: pdfID, delaySeconds: 3.0) { [weak document] in
+        pendingDebounceTasks[pdfID]?.cancel()
+        pendingDebounceTasks[pdfID] = Task { @MainActor [weak self, weak document] in
+            do {
+                try await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled else { return }
+                self?.pendingDebounceTasks.removeValue(forKey: pdfID)
                 guard let doc = document else { return }
-                await MainActor.run {
-                    Self.serializeAndWrite(document: doc, targetURL: targetURL)
-                }
+                Self.serializeAndWrite(document: doc, targetURL: targetURL)
+            } catch {
+                // Task cancelled
             }
         }
     }
     
     /// Synchronizes all in-memory and SwiftData annotations from `AnnotationStore` directly into the live `PDFDocument`
     /// and writes the updated document back to disk immediately (e.g. on view exit or document export).
-    @MainActor
     func syncStoreToDocument(for pdfID: UUID, in document: PDFDocument, at destinationURL: URL? = nil) {
+        pendingDebounceTasks[pdfID]?.cancel()
+        pendingDebounceTasks.removeValue(forKey: pdfID)
+        
         applyStoreAnnotations(for: pdfID, to: document)
         guard let targetURL = destinationURL ?? document.documentURL else { return }
         Self.serializeAndWrite(document: document, targetURL: targetURL)
