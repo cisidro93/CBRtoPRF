@@ -749,6 +749,27 @@ struct EBookSettingsPanel: View {
                         Divider().padding(.leading, 44)
                     }
 
+                    // Alternating Odd/Even Gutter Crop (Boox NeoReader Standard)
+                    ReaderSettingsToggleRow(
+                        label: "Alternating Odd/Even Crop",
+                        icon: "book.pages",
+                        isOn: $prefs.isOddEvenCropEnabled
+                    )
+
+                    if prefs.isOddEvenCropEnabled {
+                        Divider().padding(.leading, 44)
+                        SliderRow(
+                            label: "Inner Gutter Shift",
+                            icon: "arrow.left.and.right",
+                            value: $prefs.evenPageGutterOffset,
+                            range: 0.0...0.10,
+                            step: 0.005,
+                            displayFormat: { String(format: "%.1f%%", $0 * 100) }
+                        )
+                    }
+
+                    Divider().padding(.leading, 44)
+
                     // Interactive Visual Crop Editor Button
                     Button {
                         dismiss()
@@ -780,8 +801,8 @@ struct EBookSettingsPanel: View {
                     .buttonStyle(.plain)
                 }
 
-                // PDF Spreads & Orientation
-                ReaderSettingsSection(title: "PDF Spreads", icon: "book.pages") {
+                // PDF Spreads, Navigation & Orientation
+                ReaderSettingsSection(title: "PDF Layout & Navigation", icon: "book.pages") {
                     ReaderSettingsToggleRow(
                         label: "Dual-Page Spreads",
                         icon: "rectangle.split.2x1",
@@ -793,15 +814,51 @@ struct EBookSettingsPanel: View {
                         icon: "rectangle.landscape.rotate",
                         isOn: $prefs.autoLandscapeDualPage
                     )
+                    Divider().padding(.leading, 44)
+                    ReaderSettingsToggleRow(
+                        label: "Article / Column Mode",
+                        icon: "rectangle.split.2x2",
+                        isOn: $prefs.isArticleMode
+                    )
+                    Divider().padding(.leading, 44)
+                    ReaderSettingsToggleRow(
+                        label: "Manga Right-to-Left (RTL)",
+                        icon: "arrow.left.arrow.right",
+                        isOn: $prefs.pdfRTL
+                    )
+                    Divider().padding(.leading, 44)
+                    ReaderSettingsToggleRow(
+                        label: "Lock Zoom Across Pages",
+                        icon: "lock.rectangle",
+                        isOn: $prefs.isZoomLocked
+                    )
                 }
             } else {
                 // EPUB Page Layout
-                ReaderSettingsSection(title: "Page Layout", icon: "doc.text") {
+                ReaderSettingsSection(title: "Page Margins", icon: "doc.text") {
                     SliderRow(
-                        label: "Page Margins",
+                        label: "Top Margin",
+                        icon: "arrow.up",
+                        value: $prefs.textMarginTop,
+                        range: 0...80,
+                        step: 4,
+                        displayFormat: { "\(Int($0))pt" }
+                    )
+                    Divider().padding(.leading, 44)
+                    SliderRow(
+                        label: "Bottom Margin",
+                        icon: "arrow.down",
+                        value: $prefs.textMarginBottom,
+                        range: 0...80,
+                        step: 4,
+                        displayFormat: { "\(Int($0))pt" }
+                    )
+                    Divider().padding(.leading, 44)
+                    SliderRow(
+                        label: "Side Margins",
                         icon: "arrow.left.and.right",
                         value: $prefs.textMargin,
-                        range: 0...60,
+                        range: 0...80,
                         step: 4,
                         displayFormat: { "\(Int($0))pt" }
                     )

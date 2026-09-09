@@ -53,6 +53,8 @@ struct ProPDFReaderEngine: View {
     @State private var activeZoomScale: CGFloat = 1.0
     @State private var showZoomPill = false
     @State private var zoomPillTask: Task<Void, Never>? = nil
+    @State private var articleColumnStep: Int = 0
+    @State private var isNarratingPDF: Bool = false
     @State private var chromeIdleTask: Task<Void, Never>? = nil
     @State private var loadTask: Task<Void, Never>? = nil
     @State private var accessedSecurityScopedURL: URL? = nil
@@ -195,14 +197,20 @@ struct ProPDFReaderEngine: View {
             let curPage = currentPageIndex
             let visibleStart = max(0, curPage - 8)
             let visibleEnd = min(total - 1, curPage + 8)
+            let isOddEven = prefs.isOddEvenCropEnabled
+            let gutterOffset = isOddEven ? prefs.evenPageGutterOffset : 0.0
+
             if total > 0 {
                 for i in visibleStart...visibleEnd {
                     if let page = doc.page(at: i) {
                         let mediaBox = page.bounds(for: .mediaBox)
+                        let isEven = (i % 2 == 1) // 0-indexed page index (1-indexed: 2, 4, 6... is even)
+                        let leftOffset = isEven ? safeLeftMargin : (safeLeftMargin + gutterOffset)
+                        let rightOffset = isEven ? (safeRightMargin + gutterOffset) : safeRightMargin
                         let uniformCrop = CGRect(
-                            x: mediaBox.minX + (mediaBox.width * safeLeftMargin),
+                            x: mediaBox.minX + (mediaBox.width * leftOffset),
                             y: mediaBox.minY + (mediaBox.height * safeBottomMargin),
-                            width: max(10, mediaBox.width * (1.0 - safeLeftMargin - safeRightMargin)),
+                            width: max(10, mediaBox.width * (1.0 - leftOffset - rightOffset)),
                             height: max(10, mediaBox.height * (1.0 - safeTopMargin - safeBottomMargin))
                         )
                         page.setBounds(uniformCrop, for: .cropBox)
@@ -223,10 +231,13 @@ struct ProPDFReaderEngine: View {
                         if i >= visibleStart && i <= visibleEnd { continue }
                         if let page = doc.page(at: i) {
                             let mediaBox = page.bounds(for: .mediaBox)
+                            let isEven = (i % 2 == 1)
+                            let leftOffset = isEven ? safeLeftMargin : (safeLeftMargin + gutterOffset)
+                            let rightOffset = isEven ? (safeRightMargin + gutterOffset) : safeRightMargin
                             let uniformCrop = CGRect(
-                                x: mediaBox.minX + (mediaBox.width * safeLeftMargin),
+                                x: mediaBox.minX + (mediaBox.width * leftOffset),
                                 y: mediaBox.minY + (mediaBox.height * safeBottomMargin),
-                                width: max(10, mediaBox.width * (1.0 - safeLeftMargin - safeRightMargin)),
+                                width: max(10, mediaBox.width * (1.0 - leftOffset - rightOffset)),
                                 height: max(10, mediaBox.height * (1.0 - safeTopMargin - safeBottomMargin))
                             )
                             page.setBounds(uniformCrop, for: .cropBox)
@@ -241,14 +252,20 @@ struct ProPDFReaderEngine: View {
             let curPage = currentPageIndex
             let visibleStart = max(0, curPage - 8)
             let visibleEnd = min(total - 1, curPage + 8)
+            let isOddEven = prefs.isOddEvenCropEnabled
+            let gutterOffset = isOddEven ? prefs.evenPageGutterOffset : 0.0
+
             if total > 0 {
                 for i in visibleStart...visibleEnd {
                     if let page = doc.page(at: i) {
                         let mediaBox = page.bounds(for: .mediaBox)
+                        let isEven = (i % 2 == 1)
+                        let leftOffset = isEven ? insets.left : (insets.left + gutterOffset)
+                        let rightOffset = isEven ? (insets.right + gutterOffset) : insets.right
                         let croppedRect = CGRect(
-                            x: mediaBox.minX + (mediaBox.width * insets.left),
+                            x: mediaBox.minX + (mediaBox.width * leftOffset),
                             y: mediaBox.minY + (mediaBox.height * insets.top),
-                            width: max(10, mediaBox.width * (1.0 - insets.left - insets.right)),
+                            width: max(10, mediaBox.width * (1.0 - leftOffset - rightOffset)),
                             height: max(10, mediaBox.height * (1.0 - insets.top - insets.bottom))
                         )
                         page.setBounds(croppedRect, for: .cropBox)
@@ -266,10 +283,13 @@ struct ProPDFReaderEngine: View {
                         if i >= visibleStart && i <= visibleEnd { continue }
                         if let page = doc.page(at: i) {
                             let mediaBox = page.bounds(for: .mediaBox)
+                            let isEven = (i % 2 == 1)
+                            let leftOffset = isEven ? insets.left : (insets.left + gutterOffset)
+                            let rightOffset = isEven ? (insets.right + gutterOffset) : insets.right
                             let croppedRect = CGRect(
-                                x: mediaBox.minX + (mediaBox.width * insets.left),
+                                x: mediaBox.minX + (mediaBox.width * leftOffset),
                                 y: mediaBox.minY + (mediaBox.height * insets.top),
-                                width: max(10, mediaBox.width * (1.0 - insets.left - insets.right)),
+                                width: max(10, mediaBox.width * (1.0 - leftOffset - rightOffset)),
                                 height: max(10, mediaBox.height * (1.0 - insets.top - insets.bottom))
                             )
                             page.setBounds(croppedRect, for: .cropBox)
@@ -324,6 +344,7 @@ struct ProPDFReaderEngine: View {
             }
 
             toastAlertOverlay
+            pdfNarrationHUD
             ReadingJumpToastOverlay()
             lockedPasswordOverlay
         }
@@ -490,6 +511,22 @@ struct ProPDFReaderEngine: View {
         .onChange(of: prefs.defaultCropRight) { _, _ in
             if prefs.defaultCropModeRaw == "custom" {
                 applyCropInsets(CodableCropInsets(top: prefs.defaultCropTop, bottom: prefs.defaultCropBottom, left: prefs.defaultCropLeft, right: prefs.defaultCropRight, modeRaw: "custom"))
+            }
+        }
+        .onChange(of: prefs.isOddEvenCropEnabled) { _, _ in
+            if prefs.defaultCropModeRaw == "smartAuto" {
+                applyCropInsets(.smartAuto)
+            } else if prefs.defaultCropModeRaw == "custom" {
+                applyCropInsets(CodableCropInsets(top: prefs.defaultCropTop, bottom: prefs.defaultCropBottom, left: prefs.defaultCropLeft, right: prefs.defaultCropRight, modeRaw: "custom"))
+            }
+        }
+        .onChange(of: prefs.evenPageGutterOffset) { _, _ in
+            if prefs.isOddEvenCropEnabled {
+                if prefs.defaultCropModeRaw == "smartAuto" {
+                    applyCropInsets(.smartAuto)
+                } else if prefs.defaultCropModeRaw == "custom" {
+                    applyCropInsets(CodableCropInsets(top: prefs.defaultCropTop, bottom: prefs.defaultCropBottom, left: prefs.defaultCropLeft, right: prefs.defaultCropRight, modeRaw: "custom"))
+                }
             }
         }
         .onDisappear {
@@ -662,11 +699,33 @@ struct ProPDFReaderEngine: View {
         if showZoomPill {
             let scalePct = Int(round(activeZoomScale * 100))
             VStack {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 11, weight: .bold))
                     Text("\(scalePct)%")
                         .font(.system(size: 12, weight: .bold, design: .rounded))
+                    
+                    Divider().frame(height: 12)
+                    
+                    Button {
+                        HapticEngine.selection()
+                        prefs.isZoomLocked.toggle()
+                        if prefs.isZoomLocked, let pv = pdfViewReference {
+                            prefs.lockedZoomScale = pv.scaleFactor
+                            showToastMessage("Zoom Level Locked")
+                        } else {
+                            showToastMessage("Zoom Unlocked")
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: prefs.isZoomLocked ? "lock.fill" : "lock.open")
+                                .font(.system(size: 10, weight: .bold))
+                            Text(prefs.isZoomLocked ? "Locked" : "Lock")
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(prefs.isZoomLocked ? Color.orange : Color.white.opacity(0.85))
+                    }
+                    .buttonStyle(.plain)
                 }
                 .foregroundColor(.white)
                 .padding(.horizontal, 14)
@@ -677,9 +736,70 @@ struct ProPDFReaderEngine: View {
                 .padding(.top, chromeVisible ? 70 : 50)
                 Spacer()
             }
-            .allowsHitTesting(false)
             .transition(.opacity.combined(with: .scale(scale: 0.9)))
             .zIndex(10)
+        }
+    }
+
+    @ViewBuilder private var pdfNarrationHUD: some View {
+        if isNarratingPDF {
+            VStack {
+                Spacer()
+                HStack(spacing: 12) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(Color.orange)
+                        .symbolEffect(.variableColor.iterative, isActive: isNarratingPDF)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Reading Aloud (Page \(currentPageIndex + 1))")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                        Text("Auto-advances on page completion")
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.75))
+                    }
+
+                    Spacer()
+
+                    Button {
+                        HapticEngine.selection()
+                        advancePage(forward: true)
+                    } label: {
+                        Image(systemName: "forward.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.white)
+                            .padding(8)
+                            .background(Color.white.opacity(0.15), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        HapticEngine.selection()
+                        stopPDFNarration()
+                    } label: {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color.orange)
+                            .padding(8)
+                            .background(Color.orange.opacity(0.2), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule()
+                        .fill(Color.black.opacity(0.85))
+                        .background(.ultraThinMaterial, in: Capsule())
+                )
+                .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+                .padding(.horizontal, 24)
+                .padding(.bottom, chromeVisible ? 100 : 36)
+            }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .zIndex(120)
         }
     }
 
@@ -1288,6 +1408,33 @@ struct ProPDFReaderEngine: View {
 
         guard let pdfView = pdfViewReference else { return }
 
+        // Boox NeoReader Article / Column Mode Navigation
+        if prefs.isArticleMode, let page = pdfView.currentPage, let doc = pdfView.document {
+            let pageIdx = doc.index(for: page)
+            let layout = PDFColumnDetector.shared.detectColumns(in: page, pageIndex: pageIdx)
+            if layout.isMultiColumn {
+                if effectiveForward {
+                    if articleColumnStep + 1 < layout.columns.count {
+                        articleColumnStep += 1
+                        zoomToColumn(layout.columns[articleColumnStep], on: page, in: pdfView)
+                        HapticEngine.selection()
+                        return
+                    } else {
+                        articleColumnStep = 0
+                    }
+                } else {
+                    if articleColumnStep > 0 {
+                        articleColumnStep -= 1
+                        zoomToColumn(layout.columns[articleColumnStep], on: page, in: pdfView)
+                        HapticEngine.selection()
+                        return
+                    } else {
+                        articleColumnStep = 0
+                    }
+                }
+            }
+        }
+
         let remaining = max(0, totalPages - (currentPageIndex + 1))
         if effectiveForward {
             if pdfView.canGoToNextPage {
@@ -1304,7 +1451,71 @@ struct ProPDFReaderEngine: View {
                 velocityEngine.recordPageTurn(remainingPages: remaining)
             }
         }
+
+        // If entering new page in Article Mode, zoom into first column
+        if prefs.isArticleMode, let page = pdfView.currentPage, let doc = pdfView.document {
+            let pageIdx = doc.index(for: page)
+            let layout = PDFColumnDetector.shared.detectColumns(in: page, pageIndex: pageIdx)
+            if layout.isMultiColumn && !layout.columns.isEmpty {
+                let targetCol = effectiveForward ? layout.columns[0] : (layout.columns.last ?? layout.columns[0])
+                articleColumnStep = effectiveForward ? 0 : (layout.columns.count - 1)
+                zoomToColumn(targetCol, on: page, in: pdfView)
+            }
+        }
+
+        // Live Reading Pace Tracking
+        Task {
+            let pageWords = pdfView.currentPage?.string?.components(separatedBy: .whitespacesAndNewlines).filter({ !$0.isEmpty }).count ?? 250
+            await ReadingPaceTracker.shared.recordPageTurn(wordsOnPage: max(50, pageWords), timeSpentSeconds: 15.0)
+        }
         HapticEngine.selection()
+
+        // If continuous narration active, read new page
+        if isNarratingPDF {
+            startPDFNarration()
+        }
+    }
+
+    private func zoomToColumn(_ column: PDFColumn, on page: PDFPage, in pdfView: PDFView) {
+        let fitScale = pdfView.scaleFactorForSizeToFit
+        let desiredScale = max(fitScale * 1.2, min(fitScale * 4.0, (pdfView.bounds.width - 24.0) / max(1, column.rect.width)))
+        UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0, options: [.curveEaseOut]) {
+            pdfView.scaleFactor = desiredScale
+            let colCenter = CGPoint(x: column.rect.midX, y: column.rect.maxY)
+            let viewPoint = pdfView.convert(colCenter, from: page)
+            if let scrollView = pdfView.subviews.first(where: { $0 is UIScrollView }) as? UIScrollView {
+                let targetOffsetX = max(0, viewPoint.x - (pdfView.bounds.width / 2.0))
+                let targetOffsetY = max(0, viewPoint.y - 20)
+                scrollView.setContentOffset(CGPoint(x: targetOffsetX, y: targetOffsetY), animated: false)
+            }
+        }
+    }
+
+    private func togglePDFNarration() {
+        if isNarratingPDF {
+            stopPDFNarration()
+        } else {
+            startPDFNarration()
+        }
+    }
+
+    private func startPDFNarration() {
+        guard let pdfView = pdfViewReference, let page = pdfView.currentPage, let text = page.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            showToastMessage("No readable text on this page")
+            return
+        }
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        isNarratingPDF = true
+        showToastMessage("Read Aloud Active")
+        speechSynthesizer.speak(utterance)
+    }
+
+    private func stopPDFNarration() {
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        isNarratingPDF = false
+        showToastMessage("Read Aloud Stopped")
     }
 
     // MARK: - Highlight Annotation Pipeline
@@ -1902,6 +2113,10 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                 if abs(uiView.scaleFactor - targetScale) > 0.05 {
                     uiView.scaleFactor = targetScale
                 }
+            } else if prefs.isZoomLocked && prefs.lockedZoomScale > 0.1 {
+                if abs(uiView.scaleFactor - prefs.lockedZoomScale) > 0.01 {
+                    uiView.scaleFactor = prefs.lockedZoomScale
+                }
             } else if context.coordinator.userCustomZoomScale == nil {
                 if !uiView.autoScales {
                     uiView.autoScales = true
@@ -2202,6 +2417,9 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
             if abs(pdfView.scaleFactor - fitScale) > 0.05 {
                 userCustomZoomScale = pdfView.scaleFactor
             }
+            if EBookPreferences.shared.isZoomLocked {
+                EBookPreferences.shared.lockedZoomScale = pdfView.scaleFactor
+            }
             parent.onScaleChanged?(effectiveScale)
         }
 
@@ -2217,6 +2435,13 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
             if self.parent.currentPageIndex != idx {
                 self.lastTargetPageIndex = idx
                 self.parent.currentPageIndex = idx
+            }
+            // Panels / Boox Parity: If zoom is locked, reapply locked zoom scale across page turns
+            let prefs = EBookPreferences.shared
+            if prefs.isZoomLocked && prefs.lockedZoomScale > 0.1 {
+                if abs(pdfView.scaleFactor - prefs.lockedZoomScale) > 0.01 {
+                    pdfView.scaleFactor = prefs.lockedZoomScale
+                }
             }
         }
 

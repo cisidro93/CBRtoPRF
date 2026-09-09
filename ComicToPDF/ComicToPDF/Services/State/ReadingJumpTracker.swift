@@ -44,6 +44,7 @@ public final class ReadingJumpTracker: ObservableObject {
 
 public struct ReadingJumpToastOverlay: View {
     @ObservedObject private var tracker = ReadingJumpTracker.shared
+    @State private var dismissTask: Task<Void, Never>? = nil
 
     public init() {}
 
@@ -60,9 +61,17 @@ public struct ReadingJumpToastOverlay: View {
                         Text("Jumped to Page \(jump.toPage + 1)")
                             .font(.system(size: 13, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
-                        Text("Tap to return to Page \(jump.fromPage + 1)")
-                            .font(.system(size: 11, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.8))
+                        
+                        if let label = jump.chapterLabel, !label.isEmpty {
+                            Text("Return to \(label) (p. \(jump.fromPage + 1))")
+                                .font(.system(size: 11, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.8))
+                                .lineLimit(1)
+                        } else {
+                            Text("Tap to return to Page \(jump.fromPage + 1)")
+                                .font(.system(size: 11, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
                     }
 
                     Spacer()
@@ -74,39 +83,56 @@ public struct ReadingJumpToastOverlay: View {
                         Text("Return")
                             .font(.system(size: 12, weight: .bold, design: .rounded))
                             .foregroundStyle(.black)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
                             .background(Color.white, in: Capsule())
                     }
+                    .buttonStyle(.plain)
 
                     Button {
+                        HapticEngine.light()
                         tracker.dismissJump()
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.6))
-                            .padding(4)
+                            .padding(6)
                     }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(
                     Capsule()
-                        .fill(Color.black.opacity(0.85))
+                        .fill(Color.black.opacity(0.88))
                         .background(.ultraThinMaterial, in: Capsule())
                 )
                 .overlay(
                     Capsule()
-                        .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
                 )
-                .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 4)
+                .shadow(color: .black.opacity(0.3), radius: 14, x: 0, y: 5)
                 .padding(.horizontal, 20)
-                .padding(.bottom, 64)
-                .allowsHitTesting(true)
+                .padding(.bottom, 68)
             }
-            .allowsHitTesting(false)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(.asymmetric(
+                insertion: .move(edge: .bottom).combined(with: .opacity),
+                removal: .move(edge: .bottom).combined(with: .opacity)
+            ))
             .zIndex(150)
+            .onAppear {
+                dismissTask?.cancel()
+                dismissTask = Task {
+                    try? await Task.sleep(nanoseconds: 10_000_000_000) // 10 seconds auto-dismiss
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        tracker.dismissJump()
+                    }
+                }
+            }
+            .onDisappear {
+                dismissTask?.cancel()
+            }
         }
     }
 }

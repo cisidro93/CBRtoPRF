@@ -76,6 +76,7 @@ struct EBookReaderView: View {
     /// survives font-size changes and app restarts unlike a column-integer.
     @State private var chapterScrollFraction: Double = 0.0
     @State private var activeFootnoteText: String? = nil
+    @State private var showRSVPSpeedReader = false
     // Key for persisting the scroll fraction alongside the chapter index
     private var fractionKey: String { "ebook_fraction_\(fileURL.lastPathComponent.hashValue)" }
 
@@ -274,6 +275,21 @@ struct EBookReaderView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .overlay {
+            ReadingJumpToastOverlay()
+        }
+        .fullScreenCover(isPresented: $showRSVPSpeedReader) {
+            let contentText: String = {
+                if let raw = metadata?.spineItems[safe: currentIndex]?.content, !raw.isEmpty {
+                    return raw
+                }
+                return currentChapterTitle ?? title
+            }()
+            RSVPSpeedReadingView(
+                rawText: contentText,
+                bookTitle: currentChapterTitle ?? title
+            ) { _ in }
+        }
         // Settings sheet lives here only — NOT duplicated inside chapterDrawer
         .sheet(isPresented: $showingSettingsPanel) {
             EBookSettingsPanel(bookID: pdf?.id.uuidString)
@@ -439,6 +455,9 @@ struct EBookReaderView: View {
         }
         .onChange(of: chapterPage) { _, _ in
             velocityEngine.recordPageTurn()
+            Task {
+                await ReadingPaceTracker.shared.recordPageTurn(wordsOnPage: 280, timeSpentSeconds: 12.0)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerJumpToPage)) { notification in
             if let pageIndex = notification.userInfo?["pageIndex"] as? Int, pageIndex >= 0, pageIndex < totalChapters {
@@ -625,6 +644,12 @@ struct EBookReaderView: View {
                             systemImage: narrationEngine.isPlaying ? "speaker.slash.fill" : "speaker.wave.3"
                         )
                     }
+                    Button {
+                        HapticEngine.selection()
+                        showRSVPSpeedReader = true
+                    } label: {
+                        Label("Speed Read (RSVP)", systemImage: "hare.fill")
+                    }
                     Button { showShareSheet = true } label: {
                         Label("Share Book", systemImage: "square.and.arrow.up")
                     }
@@ -754,6 +779,20 @@ struct EBookReaderView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(visibleChapters, id: \.index) { item in
                             Button {
+                                let fromIndex = currentIndex
+                                let toIndex = item.index
+                                let fromLabel = currentChapterTitle
+                                if fromIndex != toIndex {
+                                    ReadingJumpTracker.shared.recordJump(fromPage: fromIndex, toPage: toIndex, chapterLabel: fromLabel) {
+                                        withAnimation(.spring()) {
+                                            isGoingForward = fromIndex >= currentIndex
+                                            currentIndex = fromIndex
+                                            chapterPage = 0
+                                            chapterScrollFraction = 0.0
+                                            saveProgress()
+                                        }
+                                    }
+                                }
                                 withAnimation(.spring()) {
                                     currentIndex = item.index
                                     chapterPage = 0

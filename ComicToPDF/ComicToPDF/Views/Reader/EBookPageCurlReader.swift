@@ -474,29 +474,36 @@ extension EBookPageCurlReader {
                 if parent.prefs.linkCoverAsSpread {
                     leftIndex = pageIndex % 2 == 0 ? pageIndex : pageIndex - 1
                     rightIndex = leftIndex + 1
-                    let leftVC = makePageViewController(for: leftIndex)
-                    let rightVC = makePageViewController(for: min(rightIndex, max(0, computedTotalPages - 1)))
-                    return [leftVC, rightVC]
                 } else {
-                    if pageIndex == 0 {
-                        return [makePageViewController(for: 0)]
-                    } else if pageIndex == 1 {
-                        return [makePageViewController(for: 1)]
-                    } else {
-                        let offset = pageIndex - 2
-                        leftIndex = 2 + (offset / 2) * 2
-                        rightIndex = leftIndex + 1
-                        let leftVC = makePageViewController(for: leftIndex)
-                        let rightVC = makePageViewController(for: min(rightIndex, max(0, computedTotalPages - 1)))
+                    if pageIndex <= 0 {
+                        // Cover page: In unlinked mode, show blank on left, cover on right
+                        let leftVC = makeBlankPageViewController(for: -1)
+                        let rightVC = makePageViewController(for: 0)
                         return [leftVC, rightVC]
+                    } else {
+                        let offset = pageIndex - 1
+                        leftIndex = 1 + (offset / 2) * 2
+                        rightIndex = leftIndex + 1
                     }
                 }
+                let leftVC = makePageViewController(for: leftIndex)
+                let rightVC = rightIndex < computedTotalPages
+                    ? makePageViewController(for: rightIndex)
+                    : makeBlankPageViewController(for: rightIndex)
+                return [leftVC, rightVC]
             } else {
                 let vc = makePageViewController(for: pageIndex)
                 return [vc]
             }
         }
 
+        func makeBlankPageViewController(for pageIndex: Int) -> EBookPageContentViewController {
+            return EBookPageContentViewController(
+                pageIndex: pageIndex,
+                snapshot: nil,
+                coordinator: self
+            )
+        }
 
         func makePageViewController(for pageIndex: Int) -> EBookPageContentViewController {
             let clampedIndex: Int
@@ -524,8 +531,7 @@ extension EBookPageCurlReader {
             viewControllerBefore viewController: UIViewController
         ) -> UIViewController? {
             guard let contentVC = viewController as? EBookPageContentViewController else { return nil }
-            let step = isDualPageMode ? 2 : 1
-            let prevIndex = contentVC.pageIndex - step
+            let prevIndex = contentVC.pageIndex - 1
             if prevIndex < 0 { return nil }
             return makePageViewController(for: prevIndex)
         }
@@ -535,9 +541,15 @@ extension EBookPageCurlReader {
             viewControllerAfter viewController: UIViewController
         ) -> UIViewController? {
             guard let contentVC = viewController as? EBookPageContentViewController else { return nil }
-            let step = isDualPageMode ? 2 : 1
-            let nextIndex = contentVC.pageIndex + step
-            if nextIndex >= computedTotalPages { return nil }
+            let nextIndex = contentVC.pageIndex + 1
+            if nextIndex >= computedTotalPages {
+                // If in dual page mode (.mid spine) and this is an odd (left) page of the last spread,
+                // supply a blank facing page so UIPageViewController has the 2 required view controllers
+                if isDualPageMode && nextIndex % 2 == 1 {
+                    return makeBlankPageViewController(for: nextIndex)
+                }
+                return nil
+            }
             return makePageViewController(for: nextIndex)
         }
 
@@ -654,12 +666,14 @@ extension EBookPageCurlReader {
             pvc.view.backgroundColor = bgColor
             wv.backgroundColor = .clear
             wv.scrollView.backgroundColor = .clear
-            wv.isHidden = false
-            if wv.superview == pvc.view { return }
-            wv.removeFromSuperview()
             wv.frame = pvc.view.bounds
             wv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            pvc.view.addSubview(wv)
+            if wv.superview != pvc.view {
+                wv.removeFromSuperview()
+                pvc.view.addSubview(wv)
+            }
+            pvc.view.bringSubviewToFront(wv)
+            wv.isHidden = false
         }
 
 
@@ -1243,15 +1257,16 @@ extension EBookPageCurlReader {
             let colWidth = max(100.0, (renderWidth / CGFloat(cols)) - gap)
 
             let pagedCSS = """
-                column-count: \(cols) !important;
                 column-width: \(colWidth)px !important;
                 column-gap: \(gap)px !important;
                 column-fill: auto !important;
                 column-rule: none !important;
             """
 
-            let paddingLeft = m
-            let paddingRight = m
+            let paddingTop = max(0, prefs.textMarginTop)
+            let paddingBottom = max(0, prefs.textMarginBottom)
+            let paddingLeft = max(0, prefs.textMargin)
+            let paddingRight = max(0, prefs.textMargin)
 
             return """
             @font-face { font-family: 'Literata'; src: local('Literata-Regular'); font-weight: normal; font-style: normal; }
@@ -1354,8 +1369,8 @@ extension EBookPageCurlReader {
                 display: block !important;
                 position: absolute !important;
                 top: 0 !important; left: 0 !important;
-                padding-top: 60px !important;
-                padding-bottom: 60px !important;
+                padding-top: \(paddingTop)px !important;
+                padding-bottom: \(paddingBottom)px !important;
                 padding-left: \(paddingLeft)px !important;
                 padding-right: \(paddingRight)px !important;
                 width: 100% !important;
@@ -1878,7 +1893,7 @@ class EBookPageContentViewController: UIViewController {
 
         let prefs = EBookPreferences.shared
         let bgColor = UIColor(hex: prefs.activeTheme.cssBackground) ?? .black
-        view.backgroundColor = bgColor
+        view.backgroundColor = snapshot != nil ? bgColor : .clear
 
         // Setup snapshot image view (0ms instant page rendering for 3D curl)
         let iv = UIImageView(frame: view.bounds)
@@ -1886,7 +1901,7 @@ class EBookPageContentViewController: UIViewController {
         iv.contentMode = .scaleToFill
         iv.clipsToBounds = true
         iv.image = snapshot
-        iv.backgroundColor = bgColor
+        iv.backgroundColor = snapshot != nil ? bgColor : .clear
         iv.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(iv)

@@ -143,6 +143,25 @@ class EBookPreferences: ObservableObject {
     @AppStorage("ebook_defaultCropBottom")    var defaultCropBottom: Double  = 0.0
     @AppStorage("ebook_defaultCropLeft")      var defaultCropLeft: Double    = 0.0
     @AppStorage("ebook_defaultCropRight")     var defaultCropRight: Double   = 0.0
+    @AppStorage("ebook_isOddEvenCropEnabled") var isOddEvenCropEnabled: Bool = false
+    @AppStorage("ebook_evenPageGutterOffset") var evenPageGutterOffset: Double = 0.02
+
+    // MARK: - Academic Article / Column Mode
+    @AppStorage("pdf_isArticleMode")          var isArticleMode: Bool        = false
+
+    // MARK: - Granular 4-Edge EPUB Margins
+    @AppStorage("ebook_textMarginTop")        var textMarginTop: Double      = 24.0
+    @AppStorage("ebook_textMarginBottom")     var textMarginBottom: Double   = 24.0
+    @AppStorage("ebook_textMarginLeft")       var textMarginLeft: Double     = 24.0
+    @AppStorage("ebook_textMarginRight")      var textMarginRight: Double    = 24.0
+
+    // MARK: - Panels-Style Persistent Lock Zoom
+    @AppStorage("pdf_isZoomLocked")           var isZoomLocked: Bool         = false
+    @AppStorage("pdf_lockedZoomScale")        var lockedZoomScale: Double    = 1.0
+
+    // MARK: - KyBook 3-Style RSVP Speed Reading
+    @AppStorage("ebook_rsvpSpeedWPM")         var rsvpSpeedWPM: Double       = 350.0
+    @AppStorage("ebook_rsvpChunkSize")        var rsvpChunkSize: Int         = 1
 
     // MARK: - Active theme helpers
     var activeTheme: EBookTheme {

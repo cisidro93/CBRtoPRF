@@ -61,10 +61,20 @@ struct InksyncProgressFooterView: View {
         case 2:
             // Mode 2: Estimated time remaining
             if let mins = estimatedMinutesLeft, mins > 0 {
-                return "~\(mins) min\(mins == 1 ? "" : "s") left in book"
+                if mins < 60 {
+                    return "~\(mins) min\(mins == 1 ? "" : "s") left in book"
+                } else {
+                    let hrs = mins / 60
+                    let rem = mins % 60
+                    return rem > 0 ? "~\(hrs)h \(rem)m left in book" : "~\(hrs)h left in book"
+                }
             } else {
                 return "\(progressPercentage)% completed"
             }
+        case 3:
+            // Mode 3: Reading Pace WPM & Completion
+            let currentWPM = Int(prefs.readingSpeedWPM)
+            return "\(currentWPM) WPM · Reading Pace"
         default:
             // Mode 0: Semantic Chapter Title & Page Indicator
             if let title = trimmedTitle, !title.isEmpty {
@@ -103,7 +113,7 @@ struct InksyncProgressFooterView: View {
                         .truncationMode(.tail)
                         .frame(maxWidth: 240, alignment: .leading)
                     
-                    if prefs.progressMode != 2 {
+                    if prefs.progressMode != 2 && prefs.progressMode != 3 {
                         Text("\(progressPercentage)%")
                             .font(.system(size: 10, weight: .bold, design: .rounded))
                             .foregroundStyle(accentColor.opacity(0.85))
@@ -125,7 +135,7 @@ struct InksyncProgressFooterView: View {
                 .onTapGesture {
                     HapticEngine.selection()
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
-                        prefs.progressMode = (prefs.progressMode + 1) % 3
+                        prefs.progressMode = (prefs.progressMode + 1) % 4
                     }
                 }
                 

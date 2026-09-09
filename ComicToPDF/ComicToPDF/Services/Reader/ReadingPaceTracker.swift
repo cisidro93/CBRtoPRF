@@ -74,6 +74,19 @@ public actor ReadingPaceTracker {
         }
     }
     
+    /// Returns estimated minutes remaining based on remaining word count.
+    public func estimatedMinutesRemaining(remainingWords: Int) -> Int {
+        guard smoothedWPM > 0, remainingWords > 0 else { return 0 }
+        return Int(ceil(Double(remainingWords) / smoothedWPM))
+    }
+
+    /// Returns estimated minutes remaining based on remaining page count and average words per page.
+    public func estimatedMinutesRemaining(remainingPages: Int, averageWordsPerPage: Int = 280) -> Int {
+        guard smoothedWPM > 0, remainingPages > 0 else { return 0 }
+        let words = remainingPages * averageWordsPerPage
+        return Int(ceil(Double(words) / smoothedWPM))
+    }
+
     /// Resets the tracker back to the default baseline speed.
     public func resetPace() {
         smoothedWPM = 220.0
