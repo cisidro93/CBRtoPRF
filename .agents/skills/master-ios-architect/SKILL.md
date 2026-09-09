@@ -98,4 +98,3 @@ Whenever authoring, refactoring, or reviewing code for InksyncPro:
 - [ ] **UI/UX Polish**: Does the UI deliver 120Hz ProMotion fluid responsiveness, glassmorphic styling, and Haptic feedback?
 - [ ] **Resource Safety**: Are notification observers dismantled and async tasks explicitly cancelled on view teardown?
 - [ ] **Telemetry**: Are key lifecycle and error events logged with structured `os.Logger`?
-

@@ -68,4 +68,3 @@ This skill provides step-by-step instructions for conducting **Clean Code Audits
 3. **Verify Semantic Interfaces**: Confirm that complex subsystem interactions are decoupled through clear protocols rather than tightly coupled concrete classes.
 4. **Check Constants & Naming**: Replace inline numeric literals with central constants and cryptic names with intent-revealing identifiers.
 5. **Verify Teardown & Fault Safety**: Confirm all async tasks and observers have clean cancellation logic and explicit error handling.
-

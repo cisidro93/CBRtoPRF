@@ -143,4 +143,3 @@ Always test features across 4 essential runtime conditions:
      - (c) **Missing / Nil Input**: Fallback defaults or graceful dismissal without dangling loaders.
 2. **Fault Isolation**:
    - Ensure an error in a secondary component (e.g., thumbnail generation, dominant color extraction) never halts primary reading or document viewing.
-
