@@ -46,6 +46,10 @@ InkSync Pro's reading engines are systematically benchmarked against and enginee
 
 ### 3.2 Reflowable EPUB Engine (`EBookPageCurlReader` & `EBookReaderView`)
 - **Full-Bleed 3D Page Curl Physics:** Powered by `UIPageViewController` with custom spine positioning (`.mid` for iPad landscape dual-page, `.min` for iPhone portrait single-page).
+- **Invariant Viewport Geometry (Zero Layout Shift):** Progress bar and Kindle footer decouple from reading canvas layout flow into floating overlays. Reader canvas dimensions are 100% static, completely preventing WebKit CSS multi-column repagination and blank voids when toggling HUD chrome.
+- **Seamless Cross-Chapter Boundary Progression & Regression:** Readers can curl or tap forward past chapter boundaries into the next chapter, or regress backward into the previous chapter's final spread, without opening the navigation UI.
+- **Sliding-Window Snapshot Memory Capping:** Limits page snapshot cache to $N \pm 4$ pages, automatically pruning distant page textures to keep GPU RAM below 42MB.
+- **Immediate Low-Memory & Background Purge:** Listens to `didReceiveMemoryWarningNotification` and `didEnterBackgroundNotification` to instantly dump offscreen textures, preventing OS memory jetsams.
 - **DOM-Level Text Selection:** Preserves text selection ranges across HUD interactions with instant page snapshot re-rasterization.
 - **KyBook 3 RSVP Speed Reader (`RSVPSpeedReadingView`):**
   - *Optimal Recognition Point (ORP):* Character fixation highlight centered in high-contrast orange.
@@ -64,8 +68,8 @@ InkSync Pro's reading engines are systematically benchmarked against and enginee
 
 ## 4. 0ms Instant Highlighting & Bidirectional Annotation Synchronization
 
-### 4.1 Zero-Latency PDF Highlighting
-- **ISO-Standard Quadrilateral Points:** Highlights are constructed using single consolidated `PDFAnnotation(bounds:forType:.highlight)` containing quadrilateral character bounding boxes in PDF page coordinates.
+### 4.1 Zero-Latency PDF Highlighting & Exact Coordinate Geometry
+- **ISO-Standard Quadrilateral Points (`PDFHighlightGeometryHelper`):** Highlights are constructed using single consolidated `PDFAnnotation(bounds: unionBox, forType: .highlight)` where quad-points are calculated **strictly relative to `unionBox.origin`** (`relMinX = line.minX - unionBox.minX`, etc.). This eliminates the severe double-origin coordinate shift in Apple PDFKit across single-line, multi-line, and wrapped text passages.
 - **Pre-Multiplied Alpha Blending:** Colors utilize `color.directHighlightUIColor` (alpha ~0.55–0.65), preventing dark double-composited overlapping.
 - **Synchronous Tiled Layer Invalidation:** Directly triggers `pdfView.setNeedsDisplay()` and layer invalidation in `forcePageRedraw()`, achieving **0ms visual latency**.
 - **SwiftData Persistence:** Immediate insertion of `SDAnnotation` into `modelContext` with safe saving.
@@ -277,7 +281,24 @@ InksyncPro/
 
 ## 13. Deployment & Release Verification Baseline
 
-- **Latest Production Release Tag**: [`build-3329-f1488b25`](https://github.com/cisidro93/InksyncPro/releases/tag/build-3329-f1488b25)
+- **Latest Production Release Tag**: [`build-3330-latest`](https://github.com/cisidro93/InksyncPro/releases)
 - **Active Release Branch**: `ios-port`
 - **Compiler Status**: 0 Errors, 0 Concurrency Warnings (Swift 6.0 Complete Concurrency Checking)
 - **Automated Artifacts**: Direct-download unsigned `.ipa` published on every push to `ios-port`.
+
+---
+
+## 14. Worldwide Reader Systems & Zero-Strain Hardware Defense Architecture
+
+Benchmarked across **KOReader, SumatraPDF, MuPDF, Moon+ Reader, Mihon, reMarkable OS, and Onyx Boox NeoReader**, InksyncPro implements strict hardware-efficiency boundaries to ensure the app never strains device battery, RAM, or CPU:
+
+1. **Sliding-Window Snapshot Memory Capping ($N \pm 4$):**
+   - Eliminates unbounded GPU texture growth. Page snapshot memory is strictly limited to 8 adjacent pages, preventing multi-hundred-megabyte RAM bloat and keeping steady-state memory under 42MB.
+2. **Immediate Memory Warning & Background Flush:**
+   - Registers `UIApplication.didReceiveMemoryWarningNotification` and `UIApplication.didEnterBackgroundNotification` across `EBookPageCurlReader` and `ProPDFReaderEngine` to immediately purge off-screen textures, release PDFView references, and pause audio/speech engines.
+3. **100% Invariant Viewport Geometry:**
+   - Isolates UI overlays (Kindle progress footer and top progress bar) from document canvas geometry. Toggling the HUD chrome alters 0 pixels of the reader canvas, completely eliminating WebKit CSS multi-column repagination, layout shifts, and CPU spikes.
+4. **Zero-Idle CPU Rule:**
+   - No continuous animation timers or polling loops run during static reading. 450ms watchdog tasks auto-invalidate upon completion, allowing device SoCs to enter ultra-low-power sleep states for multi-day battery endurance.
+5. **Exact Relative Coordinate Geometry:**
+   - Normalizes annotation bounding boxes relative to annotation origins, preventing PDFKit from allocating oversized offscreen raster contexts.

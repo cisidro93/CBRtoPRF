@@ -104,16 +104,15 @@ final class PDFAnnotationSyncBridge {
                         let validRects = targetLines.compactMap { $0.bounds(for: page) }.filter { $0 != .zero && $0.width > 2 && $0.height > 2 }
                         guard !validRects.isEmpty else { continue }
                         
-                        for lineRect in validRects {
-                            let nativeHighlight = PDFAnnotation(bounds: lineRect, forType: nativeType, withProperties: nil)
-                            nativeHighlight.userName = annotation.id.uuidString
-                            nativeHighlight.color = highlightColor
-                            nativeHighlight.contents = text
-                            nativeHighlight.shouldDisplay = true
-                            nativeHighlight.shouldPrint = true
-                            nativeHighlight.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: lineRect)
-                            page.addAnnotation(nativeHighlight)
-                        }
+                        let unionBox = PDFHighlightGeometryHelper.unionBounds(for: validRects)
+                        let nativeHighlight = PDFAnnotation(bounds: unionBox, forType: nativeType, withProperties: nil)
+                        nativeHighlight.userName = annotation.id.uuidString
+                        nativeHighlight.color = highlightColor
+                        nativeHighlight.contents = text
+                        nativeHighlight.shouldDisplay = true
+                        nativeHighlight.shouldPrint = true
+                        nativeHighlight.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects, relativeTo: unionBox)
+                        page.addAnnotation(nativeHighlight)
                         break // first matching instance on page
                     }
                 }

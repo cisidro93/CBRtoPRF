@@ -380,8 +380,27 @@ struct ProPDFReaderEngine: View {
             zoomPillTask?.cancel()
             chromeIdleTask?.cancel()
             ambientColorTask?.cancel()
+            speechSynthesizer.stopSpeaking(at: .immediate)
+            pdfViewReference?.document = nil
+            pdfViewReference = nil
             accessedSecurityScopedURL?.stopAccessingSecurityScopedResource()
             accessedSecurityScopedURL = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            // Hardware & Battery Defense: Purge off-screen caches and clear selection on low memory
+            selectedTextForHUD = nil
+            activeSelectionSnapshot = nil
+            ambientColorTask?.cancel()
+            ambientPageColor = .clear
+            pdfViewReference?.clearSelection()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            // Suspend narration and release transient UI resources when entering background
+            if isNarratingPDF {
+                speechSynthesizer.pauseSpeaking(at: .word)
+            }
+            selectedTextForHUD = nil
+            activeSelectionSnapshot = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerJumpToPage)) { notification in
             if let pageIndex = notification.userInfo?["pageIndex"] as? Int, pageIndex >= 0, pageIndex < totalPages {
@@ -1583,7 +1602,7 @@ struct ProPDFReaderEngine: View {
                     ann.contents = text
                     ann.shouldDisplay = true
                     ann.shouldPrint = true
-                    ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects)
+                    ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects, relativeTo: unionBox)
                     page.addAnnotation(ann)
                     didAddNative = true
                 }
@@ -1618,7 +1637,7 @@ struct ProPDFReaderEngine: View {
                 ann.contents = text
                 ann.shouldDisplay = true
                 ann.shouldPrint = true
-                ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects)
+                ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects, relativeTo: unionBox)
                 page.addAnnotation(ann)
                 didAddNative = true
             }
@@ -1650,7 +1669,7 @@ struct ProPDFReaderEngine: View {
                 ann.contents = text
                 ann.shouldDisplay = true
                 ann.shouldPrint = true
-                ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects)
+                ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects, relativeTo: unionBox)
                 page.addAnnotation(ann)
                 didAddNative = true
                 break

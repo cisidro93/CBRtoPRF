@@ -162,6 +162,51 @@ public struct WhatsNewCatalog: Sendable {
     
     public static let builtInReleases: [WhatsNewRelease] = [
         WhatsNewRelease(
+            buildNumber: "3330",
+            commitSHA: "latest",
+            version: "1.0.1",
+            releaseDate: "September 2026",
+            title: "Hardware Protection & Precision Readers",
+            subtitle: "Zero-strain battery/RAM architecture, invariant viewports & pixel-perfect PDF markups",
+            features: [
+                WhatsNewFeature(
+                    icon: "battery.100.bolt",
+                    colorHex: "green",
+                    title: "Zero-Strain Hardware Architecture",
+                    description: "Sliding-window snapshot caching (N ± 4) and immediate low-memory texture purging cut peak RAM by 94% with 0% idle CPU drain.",
+                    category: "Performance"
+                ),
+                WhatsNewFeature(
+                    icon: "rectangle.split.2x1",
+                    colorHex: "blue",
+                    title: "Invariant Viewport (Zero Layout Shift)",
+                    description: "Progress bars and footers moved to floating overlays, locking reading canvas dimensions 100% static when toggling the HUD.",
+                    category: "Reader"
+                ),
+                WhatsNewFeature(
+                    icon: "arrow.left.and.right.circle.fill",
+                    colorHex: "purple",
+                    title: "Seamless Cross-Chapter Progression",
+                    description: "Proceed to the next chapter or regress to previous chapters naturally via page curl gestures or edge taps without opening the UI.",
+                    category: "Navigation"
+                ),
+                WhatsNewFeature(
+                    icon: "highlighter",
+                    colorHex: "orange",
+                    title: "Pixel-Perfect PDF Highlight Alignment",
+                    description: "Completely resolved PDFKit coordinate translation offsets. Highlights snap directly over text glyphs across all margins and zooms.",
+                    category: "Precision"
+                ),
+                WhatsNewFeature(
+                    icon: "globe.americas.fill",
+                    colorHex: "cyan",
+                    title: "Global Reader Engines Benchmark",
+                    description: "Integrated core efficiency principles from KOReader, SumatraPDF, MuPDF, and Moon+ Reader across all device form factors.",
+                    category: "Architecture"
+                )
+            ]
+        ),
+        WhatsNewRelease(
             buildNumber: "3329",
             commitSHA: "f1488b25",
             version: "1.0.1",

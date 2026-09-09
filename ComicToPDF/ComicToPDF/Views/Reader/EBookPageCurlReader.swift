@@ -209,7 +209,23 @@ extension EBookPageCurlReader {
     class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate, WKNavigationDelegate, WKScriptMessageHandler, UIGestureRecognizerDelegate {
         var parent: EBookPageCurlReader
         weak var pageViewController: UIPageViewController?
-        var isTransitioning: Bool = false
+        var isTransitioning: Bool = false {
+            didSet {
+                if isTransitioning {
+                    // Watchdog: auto-release transitioning lock after 450ms in case a UIKit gesture or animation drops its completion
+                    transitionWatchdogTask?.cancel()
+                    transitionWatchdogTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 450_000_000)
+                        guard !Task.isCancelled else { return }
+                        self?.isTransitioning = false
+                    }
+                } else {
+                    transitionWatchdogTask?.cancel()
+                    transitionWatchdogTask = nil
+                }
+            }
+        }
+        private var transitionWatchdogTask: Task<Void, Never>? = nil
         var lastCompletedControllerIndex: Int? = nil
 
         // Chapter & Primary WebEngine state
@@ -255,6 +271,55 @@ extension EBookPageCurlReader {
                 }
             }
             observerTokens.append(backwardToken)
+
+            // Memory & Battery Protection: Purge distant/offscreen page snapshots on system memory warning
+            let memoryToken = NotificationCenter.default.addObserver(
+                forName: UIApplication.didReceiveMemoryWarningNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self = self else { return }
+                    self.purgeDistantSnapshots(keepCurrent: true)
+                }
+            }
+            observerTokens.append(memoryToken)
+
+            // Backgrounding Protection: Discard all off-screen textures when app enters background
+            let bgToken = NotificationCenter.default.addObserver(
+                forName: UIApplication.didEnterBackgroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self = self else { return }
+                    self.purgeDistantSnapshots(keepCurrent: true)
+                }
+            }
+            observerTokens.append(bgToken)
+        }
+
+        /// Prunes snapshot cache to a strict sliding window of (centerIndex ± maxSnapshotDistance)
+        /// Preventing retina GPU texture memory leaks and battery drain (KOReader/SumatraPDF model).
+        private let maxSnapshotDistance = 4
+
+        func pruneSnapshotCache(around centerIndex: Int) {
+            let minKeep = centerIndex - maxSnapshotDistance
+            let maxKeep = centerIndex + maxSnapshotDistance
+            pageSnapshots = pageSnapshots.filter { key, _ in
+                key >= minKeep && key <= maxKeep
+            }
+        }
+
+        func purgeDistantSnapshots(keepCurrent: Bool = true) {
+            if keepCurrent {
+                let current = currentPageIndex
+                pageSnapshots = pageSnapshots.filter { key, _ in
+                    abs(key - current) <= 1
+                }
+            } else {
+                pageSnapshots.removeAll()
+            }
         }
 
         deinit {
@@ -479,20 +544,24 @@ extension EBookPageCurlReader {
         }
 
         func spreadViewControllers(for pageIndex: Int) -> [UIViewController] {
+            let effectiveIndex = (pageIndex == 99999 || pageIndex >= computedTotalPages)
+                ? max(0, computedTotalPages - 1)
+                : max(0, pageIndex)
+
             if isDualPageMode {
                 let leftIndex: Int
                 let rightIndex: Int
                 if parent.prefs.linkCoverAsSpread {
-                    leftIndex = pageIndex % 2 == 0 ? pageIndex : pageIndex - 1
+                    leftIndex = effectiveIndex % 2 == 0 ? effectiveIndex : effectiveIndex - 1
                     rightIndex = leftIndex + 1
                 } else {
-                    if pageIndex <= 0 {
+                    if effectiveIndex <= 0 {
                         // Cover page: In unlinked mode, show blank on left, cover on right
                         let leftVC = makeBlankPageViewController(for: -1)
                         let rightVC = makePageViewController(for: 0)
                         return [leftVC, rightVC]
                     } else {
-                        let offset = pageIndex - 1
+                        let offset = effectiveIndex - 1
                         leftIndex = 1 + (offset / 2) * 2
                         rightIndex = leftIndex + 1
                     }
@@ -503,7 +572,7 @@ extension EBookPageCurlReader {
                     : makeBlankPageViewController(for: rightIndex)
                 return [leftVC, rightVC]
             } else {
-                let vc = makePageViewController(for: pageIndex)
+                let vc = makePageViewController(for: effectiveIndex)
                 return [vc]
             }
         }
@@ -544,8 +613,8 @@ extension EBookPageCurlReader {
             guard let contentVC = viewController as? EBookPageContentViewController else { return nil }
             let prevIndex = contentVC.pageIndex - 1
             if prevIndex < 0 {
-                // Return transition page to previous chapter to allow backward curl
-                return makeBlankPageViewController(for: -1)
+                // Return unique transition page to previous chapter to allow backward curl
+                return makeBlankPageViewController(for: prevIndex)
             }
             return makePageViewController(for: prevIndex)
         }
@@ -557,13 +626,8 @@ extension EBookPageCurlReader {
             guard let contentVC = viewController as? EBookPageContentViewController else { return nil }
             let nextIndex = contentVC.pageIndex + 1
             if nextIndex >= computedTotalPages {
-                // If in dual page mode (.mid spine) and this is an odd (left) page of the last spread,
-                // supply a blank facing page so UIPageViewController has the 2 required view controllers
-                if isDualPageMode && nextIndex % 2 == 1 {
-                    return makeBlankPageViewController(for: nextIndex)
-                }
-                // Return transition page to next chapter to allow forward curl
-                return makeBlankPageViewController(for: computedTotalPages)
+                // Return unique transition page to next chapter to allow forward curl
+                return makeBlankPageViewController(for: nextIndex)
             }
             return makePageViewController(for: nextIndex)
         }
@@ -632,16 +696,20 @@ extension EBookPageCurlReader {
             transitionCompleted completed: Bool
         ) {
             isTransitioning = false
-            guard let currentVC = pageViewController.viewControllers?.first as? EBookPageContentViewController else {
+            guard let activeVCs = pageViewController.viewControllers as? [EBookPageContentViewController],
+                  let currentVC = activeVCs.first else {
                 return
             }
 
             let newPageIndex = currentVC.pageIndex
+            let hasExceededEnd = activeVCs.contains { $0.pageIndex >= computedTotalPages }
+            let hasExceededStart = activeVCs.contains { $0.pageIndex < 0 }
+
             if completed {
-                if newPageIndex >= computedTotalPages {
+                if hasExceededEnd {
                     parent.onNext()
                     return
-                } else if newPageIndex < 0 {
+                } else if hasExceededStart {
                     parent.onPrev()
                     return
                 }
@@ -654,6 +722,7 @@ extension EBookPageCurlReader {
             }
 
             let targetPage = completed ? newPageIndex : currentPageIndex
+            pruneSnapshotCache(around: targetPage)
             primaryWebView?.isHidden = true
             mountPrimaryWebViewOnRoot()
             // Reveal the WebView only after the JS column-position commit completes,
@@ -679,6 +748,7 @@ extension EBookPageCurlReader {
             wv.takeSnapshot(with: config) { [weak self] image, _ in
                 guard let image = image, let self = self else { return }
                 self.pageSnapshots[current] = image
+                self.pruneSnapshotCache(around: current)
             }
         }
 

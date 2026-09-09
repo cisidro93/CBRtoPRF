@@ -137,149 +137,136 @@ struct EBookReaderView: View {
             // Background bleeds into status bar
             prefs.activeTheme.background(colorScheme: colorScheme).ignoresSafeArea()
             
-            VStack(spacing: 0) {
-                // ── Reading Progress Bar ──────────────────────────────────
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Rectangle().fill(prefs.activeTheme.foreground(colorScheme: colorScheme).opacity(0.08)).frame(height: 2)
-                        Rectangle()
-                            .fill(LinearGradient(colors: [Color(hex: "#7B5EA7"), Color(hex: "#B39DDB")],
-                                                 startPoint: .leading, endPoint: .trailing))
-                            .frame(width: geo.size.width * progressFraction, height: 2)
-                            .animation(.spring(response: 0.4), value: progressFraction)
-                    }
-                }
-                .frame(height: 2)
-                .padding(.top, 44)
-                
-                // ── Main Reader ───────────────────────────────────────────
-                Group {
-                    if isLoading {
-                        readerLoadingView
-                    } else if let err = errorMessage {
-                        readerErrorView(err)
-                    } else if let meta = metadata, !meta.spineItems.isEmpty {
-                        ZStack {
-                            if prefs.paginationMode == EBookPaginationMode.paged.rawValue {
-                                // ── Native UIPageViewController Page Curl ──────────────
-                                // Uses UIPageViewController(.pageCurl) — the same native
-                                // iOS page curl used by the comic and PDF readers.
-                                EBookPageCurlReader(
-                                    spineItem:   meta.spineItems[safe: currentIndex] ?? meta.spineItems[0],
-                                    unzipDir:    unzipDir,
-                                    prefs:       prefs,
-                                    colorScheme: colorScheme,
-                                    currentPage: $chapterPage,
-                                    initialPage: chapterPage,
-                                    totalPages:  $chapterTotalPages,
-                                    onNext:      nextChapter,
-                                    onPrev:      prevChapter,
-                                    onCenterTap: { withAnimation(.easeInOut(duration: 0.2)) { showHUD.toggle() } },
-                                    onHighlightCreated: { selectedText in
-                                        guard !isApplyingHighlightDirectly else { return }
-                                        let defaultColor = EBookPreferences.shared.defaultHighlightColor.rawValue
-                                        applyHighlight(text: selectedText, colorHex: defaultColor, symbol: nil)
-                                    },
-                                    onHighlightCreatedWithMetadata: { idStr, selectedText, colorHex in
-                                        let hId = UUID(uuidString: idStr) ?? UUID()
-                                        saveHighlightFromDirectDOM(id: hId, text: selectedText, colorHex: colorHex)
-                                    },
-                                    onHighlightTapped: { tappedText in
-                                        if let sdMatch = findMatchingAnnotation(tappedText: tappedText) {
-                                            withAnimation(.easeInOut(duration: 0.18)) {
-                                                activeHighlightToEdit = sdMatch
-                                            }
-                                        }
-                                    },
-                                    onTextSelected: { text in
+            // ── Main Reader Canvas (100% Invariant Fixed Viewport) ─────
+            Group {
+                if isLoading {
+                    readerLoadingView
+                } else if let err = errorMessage {
+                    readerErrorView(err)
+                } else if let meta = metadata, !meta.spineItems.isEmpty {
+                    ZStack {
+                        if prefs.paginationMode == EBookPaginationMode.paged.rawValue {
+                            // ── Native UIPageViewController Page Curl ──────────────
+                            // Uses UIPageViewController(.pageCurl) — the same native
+                            // iOS page curl used by the comic and PDF readers.
+                            EBookPageCurlReader(
+                                spineItem:   meta.spineItems[safe: currentIndex] ?? meta.spineItems[0],
+                                unzipDir:    unzipDir,
+                                prefs:       prefs,
+                                colorScheme: colorScheme,
+                                currentPage: $chapterPage,
+                                initialPage: chapterPage,
+                                totalPages:  $chapterTotalPages,
+                                onNext:      nextChapter,
+                                onPrev:      prevChapter,
+                                onCenterTap: { withAnimation(.easeInOut(duration: 0.2)) { showHUD.toggle() } },
+                                onHighlightCreated: { selectedText in
+                                    guard !isApplyingHighlightDirectly else { return }
+                                    let defaultColor = EBookPreferences.shared.defaultHighlightColor.rawValue
+                                    applyHighlight(text: selectedText, colorHex: defaultColor, symbol: nil)
+                                },
+                                onHighlightCreatedWithMetadata: { idStr, selectedText, colorHex in
+                                    let hId = UUID(uuidString: idStr) ?? UUID()
+                                    saveHighlightFromDirectDOM(id: hId, text: selectedText, colorHex: colorHex)
+                                },
+                                onHighlightTapped: { tappedText in
+                                    if let sdMatch = findMatchingAnnotation(tappedText: tappedText) {
                                         withAnimation(.easeInOut(duration: 0.18)) {
-                                            selectedTextForHUD = text
+                                            activeHighlightToEdit = sdMatch
                                         }
-                                    },
-                                    onSelectionDismissed: {
-                                        withAnimation(.easeInOut(duration: 0.18)) {
-                                            selectedTextForHUD = nil
-                                        }
-                                    },
-                                    pdfID: pdf?.id,
-                                    initialScrollFraction: UserDefaults.standard.double(forKey: "ebook_fraction_\(fileURL.lastPathComponent.hashValue)"),
-                                    onScrollFractionChanged: { fraction in
-                                        chapterScrollFraction = fraction
-                                        saveProgress()
-                                    },
-                                    webViewRef: $webViewReference,
-                                    onFootnoteTapped: { text in
-                                        activeFootnoteText = text
                                     }
-                                )
-                                .id("ebook_\(currentIndex)_\(prefs.pageTurnStyle.rawValue)")
-                            } else {
-                                // ── Scroll Mode (continuous vertical) ──────────────────
-                                EBookWebReader(
-                                    spineItem:   meta.spineItems[safe: currentIndex] ?? meta.spineItems[0],
-                                    unzipDir:    unzipDir,
-                                    prefs:       prefs,
-                                    colorScheme: colorScheme,
-                                    currentPage: $chapterPage,
-                                    initialPage: chapterPage,
-                                    totalPages:  $chapterTotalPages,
-                                    onNext:      nextChapter,
-                                    onPrev:      prevChapter,
-                                    onCenterTap: { withAnimation(.easeInOut(duration: 0.2)) { showHUD.toggle() } },
-                                    onHighlightCreated: { selectedText in
-                                        guard let p = pdf else { return }
-                                        let rawLabel = metadata?.spineItems[safe: currentIndex]?.label ?? ""
-                                        let spineLabel = !rawLabel.isEmpty ? rawLabel : nil
-                                        let highlight = Annotation(
-                                            pdfID: p.id,
-                                            pageIndex: currentIndex,
-                                            chapterTitle: spineLabel,
-                                            kind: .highlight,
-                                            createdAt: Date(),
-                                            modifiedAt: Date(),
-                                            colorHex: prefs.defaultHighlightColor.rawValue,
-                                            selectedText: selectedText
-                                        )
-                                        AnnotationStore.shared.add(highlight)
-                                        let sdAnnotation = SDAnnotation(from: highlight)
-                                        modelContext.insert(sdAnnotation)
-                                        try? modelContext.save()
-                                        activeHighlightToEdit = sdAnnotation
-                                    },
-                                    pdfID: pdf?.id,
-                                    initialScrollFraction: UserDefaults.standard.double(forKey: "ebook_fraction_\(fileURL.lastPathComponent.hashValue)"),
-                                    onScrollFractionChanged: { fraction in
-                                        chapterScrollFraction = fraction
-                                        saveProgress()
-                                    },
-                                    webViewRef: $webViewReference,
-                                    onFootnoteTapped: { text in
-                                        activeFootnoteText = text
+                                },
+                                onTextSelected: { text in
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        selectedTextForHUD = text
                                     }
-                                )
-                                .id("ebook_web_\(currentIndex)")
-                            }
-                            
-                            EdgeBrightnessGestureZone()
+                                },
+                                onSelectionDismissed: {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        selectedTextForHUD = nil
+                                    }
+                                },
+                                pdfID: pdf?.id,
+                                initialScrollFraction: UserDefaults.standard.double(forKey: "ebook_fraction_\(fileURL.lastPathComponent.hashValue)"),
+                                onScrollFractionChanged: { fraction in
+                                    chapterScrollFraction = fraction
+                                    saveProgress()
+                                },
+                                webViewRef: $webViewReference,
+                                onFootnoteTapped: { text in
+                                    activeFootnoteText = text
+                                }
+                            )
+                            .id("ebook_\(currentIndex)_\(prefs.pageTurnStyle.rawValue)")
+                        } else {
+                            // ── Scroll Mode (continuous vertical) ──────────────────
+                            EBookWebReader(
+                                spineItem:   meta.spineItems[safe: currentIndex] ?? meta.spineItems[0],
+                                unzipDir:    unzipDir,
+                                prefs:       prefs,
+                                colorScheme: colorScheme,
+                                currentPage: $chapterPage,
+                                initialPage: chapterPage,
+                                totalPages:  $chapterTotalPages,
+                                onNext:      nextChapter,
+                                onPrev:      prevChapter,
+                                onCenterTap: { withAnimation(.easeInOut(duration: 0.2)) { showHUD.toggle() } },
+                                onHighlightCreated: { selectedText in
+                                    guard let p = pdf else { return }
+                                    let rawLabel = metadata?.spineItems[safe: currentIndex]?.label ?? ""
+                                    let spineLabel = !rawLabel.isEmpty ? rawLabel : nil
+                                    let highlight = Annotation(
+                                        pdfID: p.id,
+                                        pageIndex: currentIndex,
+                                        chapterTitle: spineLabel,
+                                        kind: .highlight,
+                                        createdAt: Date(),
+                                        modifiedAt: Date(),
+                                        colorHex: prefs.defaultHighlightColor.rawValue,
+                                        selectedText: selectedText
+                                    )
+                                    AnnotationStore.shared.add(highlight)
+                                    let sdAnnotation = SDAnnotation(from: highlight)
+                                    modelContext.insert(sdAnnotation)
+                                    try? modelContext.save()
+                                    activeHighlightToEdit = sdAnnotation
+                                },
+                                pdfID: pdf?.id,
+                                initialScrollFraction: UserDefaults.standard.double(forKey: "ebook_fraction_\(fileURL.lastPathComponent.hashValue)"),
+                                onScrollFractionChanged: { fraction in
+                                    chapterScrollFraction = fraction
+                                    saveProgress()
+                                },
+                                webViewRef: $webViewReference,
+                                onFootnoteTapped: { text in
+                                    activeFootnoteText = text
+                                }
+                            )
+                            .id("ebook_web_\(currentIndex)")
                         }
-                    }
-                    
-                    if !showHUD {
-                        KindleProgressFooterView(
-                            currentPage: currentIndex + 1,
-                            totalPages: totalChapters,
-                            chapterPage: chapterPage,
-                            chapterTotalPages: chapterTotalPages,
-                            chapterTitle: currentChapterTitle,
-                            isBookSection: true,
-                            estimatedMinutesLeft: pdf.flatMap { ReaderProgressTracker.shared.progress(for: $0.id)?.estimatedMinutesRemaining }
-                        )
+                        
+                        EdgeBrightnessGestureZone()
                     }
                 }
-                .readingFilter(prefs.readingFilter)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea()
             }
+            .readingFilter(prefs.readingFilter)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+
+            // ── Reading Progress Bar (Fixed Top Floating Overlay) ──────────
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(prefs.activeTheme.foreground(colorScheme: colorScheme).opacity(0.08)).frame(height: 2)
+                    Rectangle()
+                        .fill(LinearGradient(colors: [Color(hex: "#7B5EA7"), Color(hex: "#B39DDB")],
+                                             startPoint: .leading, endPoint: .trailing))
+                        .frame(width: geo.size.width * progressFraction, height: 2)
+                        .animation(.spring(response: 0.4), value: progressFraction)
+                }
+            }
+            .frame(height: 2)
+            .padding(.top, 44)
+            .allowsHitTesting(false)
             
             // ── HUD Overlays (tap-to-show UI) ─────────────────────────────
             if showChapterList { chapterDrawer }
@@ -1129,6 +1116,23 @@ struct EBookReaderView: View {
                     narrationFloatingHUD
                         .padding(.bottom, showHUD ? 90 : 24)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .ignoresSafeArea(edges: .bottom)
+            }
+            
+            if !showHUD {
+                VStack(spacing: 0) {
+                    Spacer()
+                    KindleProgressFooterView(
+                        currentPage: currentIndex + 1,
+                        totalPages: totalChapters,
+                        chapterPage: chapterPage,
+                        chapterTotalPages: chapterTotalPages,
+                        chapterTitle: currentChapterTitle,
+                        isBookSection: true,
+                        estimatedMinutesLeft: pdf.flatMap { ReaderProgressTracker.shared.progress(for: $0.id)?.estimatedMinutesRemaining }
+                    )
+                    .transition(.opacity)
                 }
                 .ignoresSafeArea(edges: .bottom)
             }
