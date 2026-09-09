@@ -180,7 +180,7 @@ public final class StudyNotebookStore: ObservableObject {
     // MARK: - SwiftData Live Ingestion
     
     /// Synchronizes highlights and notes from SwiftData into active study cards.
-    public func syncFromSwiftData(annotations: [SDAnnotation], pdfs: [SDConvertedPDF]) {
+    func syncFromSwiftData(annotations: [SDAnnotation], pdfs: [SDConvertedPDF]) {
         var pdfTitleMap: [UUID: String] = [:]
         for pdf in pdfs {
             pdfTitleMap[pdf.id] = pdf.name
