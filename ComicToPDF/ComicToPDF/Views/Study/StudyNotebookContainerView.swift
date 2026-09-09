@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 // MARK: - Study Workspace Mode
 
@@ -26,6 +27,12 @@ public struct StudyNotebookContainerView: View {
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var store = StudyNotebookStore.shared
     
+    public var showDismissButton: Bool = false
+    @Query private var allAnnotations: [SDAnnotation]
+    @Query private var allPDFs: [SDConvertedPDF]
+    @EnvironmentObject var conversionManager: ConversionManager
+    @State private var selectedBookForReader: ConvertedPDF? = nil
+    
     // View Mode & Sidebar
     @State private var activeMode: StudyWorkspaceMode = .cornellNotes
     @State private var showSidebar: Bool = true
@@ -38,7 +45,9 @@ public struct StudyNotebookContainerView: View {
     
     private let exportEngine = StudyExportEngine.shared
     
-    public init() {}
+    public init(showDismissButton: Bool = false) {
+        self.showDismissButton = showDismissButton
+    }
     
     public var body: some View {
         GeometryReader { geo in
@@ -94,6 +103,16 @@ public struct StudyNotebookContainerView: View {
         }
         .sheet(item: $shareExportItem) { payload in
             StudyShareSheet(items: [payload.text])
+        }
+        .fullScreenCover(item: $selectedBookForReader) { pdf in
+            UnifiedReaderView(pdf: pdf)
+                .environmentObject(conversionManager)
+        }
+        .onAppear {
+            store.syncFromSwiftData(annotations: allAnnotations, pdfs: allPDFs)
+        }
+        .onChange(of: allAnnotations.count) { _, _ in
+            store.syncFromSwiftData(annotations: allAnnotations, pdfs: allPDFs)
         }
     }
     
@@ -239,17 +258,19 @@ public struct StudyNotebookContainerView: View {
                     .background(Color.primary.opacity(0.06), in: Circle())
             }
             
-            // Dismiss Button
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.inkTextSecondary)
-                    .padding(8)
-                    .background(Color.primary.opacity(0.06), in: Circle())
+            // Dismiss Button (if presented modally)
+            if showDismissButton {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.inkTextSecondary)
+                        .padding(8)
+                        .background(Color.primary.opacity(0.06), in: Circle())
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

@@ -675,6 +675,8 @@ struct StudyNotebookView: View {
                                 onGenerateCues: generateCornellCues,
                                 onGenerateSummary: generateCornellSummary
                             )
+                            .onChange(of: cornellCuesText) { _, _ in debounceSave() }
+                            .onChange(of: cornellSummaryText) { _, _ in debounceSave() }
                         } else if inputMode == .markdown {
                             ZStack {
                                 NotebookPaperBackground(style: paperStyle, spacing: paperSpacing, colorScheme: colorScheme)
@@ -811,6 +813,8 @@ struct StudyNotebookView: View {
                 let drawingData = drawing.dataRepresentation()
                 
                 activeNoteAnnotation?.noteText = note
+                activeNoteAnnotation?.cornellCueText = cornellCuesText
+                activeNoteAnnotation?.cornellSummaryText = cornellSummaryText
                 activeNoteAnnotation?.drawingData = drawingData
                 activeNoteAnnotation?.modifiedAt = Date()
                 do {
@@ -874,8 +878,10 @@ struct StudyNotebookView: View {
             self.activeNoteAnnotation = existing
             let loadedText = existing.noteText ?? ""
             self.localNotes = loadedText
+            self.cornellCuesText = existing.cornellCueText ?? ""
+            self.cornellSummaryText = existing.cornellSummaryText ?? ""
             let wordCount = loadedText.split { $0.isWhitespace }.count
-            Logger.shared.log("Loaded existing note for '\(bookTitle)' (\(wordCount) words)", category: "Notebook", type: .success)
+            Logger.shared.log("Loaded existing note for '\(bookTitle)' (\(wordCount) words, Cornell cues: \(self.cornellCuesText.count) chars, summary: \(self.cornellSummaryText.count) chars)", category: "Notebook", type: .success)
             
             if existing.pageIndex >= 0 {
                 self.referencedPageIndices.insert(existing.pageIndex)
@@ -914,6 +920,8 @@ struct StudyNotebookView: View {
             try? modelContext.save()
             self.activeNoteAnnotation = newNote
             self.localNotes = ""
+            self.cornellCuesText = ""
+            self.cornellSummaryText = ""
             Logger.shared.log("New note created, inserted and saved for '\(bookTitle)'", category: "Notebook", type: .success)
         }
         
@@ -986,6 +994,8 @@ struct StudyNotebookView: View {
             try? await Task.sleep(nanoseconds: 1_200_000_000) // 1.2 seconds for data saving debounce
             if !Task.isCancelled {
                 let note = self.localNotes
+                let cues = self.cornellCuesText
+                let summary = self.cornellSummaryText
                 let drawing = self.canvasView.drawing
                 let drawingData = drawing.dataRepresentation()
                 
@@ -995,6 +1005,8 @@ struct StudyNotebookView: View {
                         self.referencedPageIndices.insert(activePage)
                     }
                     self.activeNoteAnnotation?.noteText = note
+                    self.activeNoteAnnotation?.cornellCueText = cues
+                    self.activeNoteAnnotation?.cornellSummaryText = summary
                     self.activeNoteAnnotation?.drawingData = drawingData
                     self.activeNoteAnnotation?.modifiedAt = Date()
                     if let annotation = self.activeNoteAnnotation {
@@ -1907,12 +1919,14 @@ extension StudyNotebookView {
             card.easeFactor = min(5.0, card.easeFactor + 0.1)
             let intervalDays = max(1, Int(round(6 * pow(card.easeFactor, Double(card.reviewCount - 1)))))
             card.nextReviewDate = Calendar.current.date(byAdding: .day, value: intervalDays, to: Date())
+            card.modifiedAt = Date()
             correctAnswersCount += 1
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         } else {
             card.reviewCount = 0
             card.easeFactor = max(1.3, card.easeFactor - 0.2)
             card.nextReviewDate = Calendar.current.date(byAdding: .day, value: 1, to: Date())
+            card.modifiedAt = Date()
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
         }
         

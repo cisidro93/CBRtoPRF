@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import SwiftData
 
 // MARK: - Study Notebook Store
 
@@ -122,6 +123,7 @@ public final class StudyNotebookStore: ObservableObject {
         let scheduled = scheduler.scheduleNextReview(for: current, rating: rating)
         cards[idx] = scheduled
         saveCards()
+        NotificationCenter.default.post(name: .annotationsDidChange, object: nil, userInfo: ["annotationID": id])
         return scheduled
     }
     
@@ -173,6 +175,68 @@ public final class StudyNotebookStore: ObservableObject {
         )
         addCard(newCard)
         return newCard
+    }
+    
+    // MARK: - SwiftData Live Ingestion
+    
+    /// Synchronizes highlights and notes from SwiftData into active study cards.
+    public func syncFromSwiftData(annotations: [SDAnnotation], pdfs: [SDConvertedPDF]) {
+        var pdfTitleMap: [UUID: String] = [:]
+        for pdf in pdfs {
+            pdfTitleMap[pdf.id] = pdf.name
+        }
+        
+        var importedAny = false
+        
+        for ann in annotations {
+            guard let text = ann.selectedText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            
+            if !cards.contains(where: { $0.id == ann.id }) {
+                let docTitle = pdfTitleMap[ann.pdfID] ?? ann.readwiseBookTitle ?? "Reading Document"
+                let citation = PassageCitation(
+                    documentID: ann.pdfID,
+                    documentTitle: docTitle,
+                    pageNumber: ann.pageIndex + 1,
+                    anchorID: nil,
+                    highlightedText: text
+                )
+                
+                let prompt: String
+                if let note = ann.noteText, !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    prompt = "\(note)\n\n==\(text)=="
+                } else {
+                    prompt = "What is the key takeaway from this passage?\n\n==\(text)=="
+                }
+                
+                var adler: AdlerMarker? = nil
+                if let sym = ann.marginaliaSymbolRaw {
+                    adler = AdlerMarker(rawValue: sym)
+                }
+                
+                let allTags = (ann.tags ?? []) + (ann.readwiseTags ?? [])
+                
+                let card = StudyCard(
+                    id: ann.id,
+                    citation: citation,
+                    markdownBody: prompt,
+                    adlerTag: adler,
+                    tags: allTags,
+                    dueDate: ann.nextReviewDate ?? Date(),
+                    intervalDays: Double(max(1, Int(round(6 * pow(ann.easeFactor, Double(max(0, ann.reviewCount - 1))))))),
+                    repetitionCount: ann.reviewCount,
+                    easeFactor: ann.easeFactor,
+                    createdAt: ann.createdAt,
+                    modifiedAt: ann.modifiedAt
+                )
+                cards.append(card)
+                importedAny = true
+            }
+        }
+        
+        if importedAny {
+            saveCards()
+            Logger.shared.log("StudyNotebookStore: Synced book highlights into \(cards.count) active study cards", category: "Study", type: .success)
+        }
     }
     
     // MARK: - Persistence Layer

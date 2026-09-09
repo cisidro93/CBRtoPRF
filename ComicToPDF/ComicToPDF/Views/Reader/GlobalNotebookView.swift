@@ -42,18 +42,38 @@ struct GlobalNotebookView: View {
     
     // Redesigned Notebooks Hub State
     enum Tab: String, CaseIterable, Identifiable {
-        case notebooks = "Notebooks"
+        case notebooks  = "Notebooks"
         case highlights = "Highlights"
+        case studyDeck  = "Active Study"
         case vocabulary = "Vocabulary"
         
         var id: String { rawValue }
         
         var icon: String {
             switch self {
-            case .notebooks: return "note.text"
+            case .notebooks:  return "note.text"
             case .highlights: return "highlighter"
+            case .studyDeck:  return "play.rectangle.on.rectangle.fill"
             case .vocabulary: return "character.book.closed"
             }
+        }
+    }
+    
+    private var tabTitle: String {
+        switch activeTab {
+        case .notebooks:  return "Notebooks Hub"
+        case .highlights: return "Highlights & Knowledge"
+        case .studyDeck:  return "Active Study Suite"
+        case .vocabulary: return "Vocabulary Hub"
+        }
+    }
+    
+    private var tabSubtitle: String {
+        switch activeTab {
+        case .notebooks:  return "Your unified creative sketchbooks & study guides"
+        case .highlights: return "Your consolidated reading highlights & Zettelkasten"
+        case .studyDeck:  return "Cornell notes, Mortimer Adler markers & spaced repetition"
+        case .vocabulary: return "Word bank and vocabulary learned from reading"
         }
     }
     
@@ -228,6 +248,8 @@ struct GlobalNotebookView: View {
                     }
                 } else if activeTab == .highlights {
                     GlobalZettelkastenHubView(activeTab: $activeTab)
+                } else if activeTab == .studyDeck {
+                    StudyNotebookContainerView(showDismissButton: false)
                 } else {
                     VocabularyNotebookHubView()
                 }
@@ -278,7 +300,7 @@ struct GlobalNotebookView: View {
                 // Compact iPhone Portrait Layout: 2 rows
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(activeTab == .notebooks ? "Notebooks Hub" : "Highlights Hub")
+                        Text(tabTitle)
                             .font(.system(size: 24, weight: .bold, design: .rounded))
                             .foregroundStyle(
                                 LinearGradient(
@@ -287,7 +309,7 @@ struct GlobalNotebookView: View {
                                     endPoint: .bottomTrailing
                                 )
                             )
-                        Text(activeTab == .notebooks ? "Your unified creative sketchbooks" : "Your consolidated highlights & notes")
+                        Text(tabSubtitle)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.inkTextSecondary)
                     }
@@ -364,7 +386,7 @@ struct GlobalNotebookView: View {
                 // Regular iPad / Landscape Layout: 1 row
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(activeTab == .notebooks ? "Notebooks Hub" : "Highlights Hub")
+                        Text(tabTitle)
                             .font(.system(size: 24, weight: .bold, design: .rounded))
                             .foregroundStyle(
                                 LinearGradient(
@@ -373,7 +395,7 @@ struct GlobalNotebookView: View {
                                     endPoint: .bottomTrailing
                                 )
                             )
-                        Text(activeTab == .notebooks ? "Your unified creative sketchbooks & study guides" : "Your consolidated reading highlights & notes")
+                        Text(tabSubtitle)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.inkTextSecondary)
                     }
