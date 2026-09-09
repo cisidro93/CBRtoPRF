@@ -424,17 +424,21 @@ extension ConversionManager {
         
         var coordinatorError: NSError?
         var copySuccess = false
+        var internalCopyError: Error?
         let coordinator = NSFileCoordinator()
         coordinator.coordinate(readingItemAt: resolvedExternalURL, options: [], writingItemAt: destinationURL, options: .forReplacing, error: &coordinatorError) { readURL, writeURL in
             do {
                 try FileManager.default.copyItem(at: readURL, to: writeURL)
                 copySuccess = true
             } catch {
-                coordinatorError = error as NSError
+                internalCopyError = error
             }
         }
         
         if let err = coordinatorError {
+            throw err
+        }
+        if let err = internalCopyError {
             throw err
         }
         guard copySuccess else {
