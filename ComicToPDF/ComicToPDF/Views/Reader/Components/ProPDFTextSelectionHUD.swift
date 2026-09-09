@@ -91,13 +91,39 @@ struct ProPDFTextSelectionHUD: View {
     let pageIndex: Int
     var onHighlight: (PDFHighlightColor) -> Void
     var onMarkup: ((PDFHighlightColor, AnnotationMarkupStyle) -> Void)? = nil
+    var onUnhighlight: (() -> Void)? = nil
     var onAddNote: (String) -> Void
     var onCopy: () -> Void
     var onSpeak: (String) -> Void
     var onCreateZettelkastenCard: (String) -> Void
     var onAddMarginaliaSymbol: ((String) -> Void)? = nil
-    var onUnhighlight: (() -> Void)? = nil
     var onDismiss: (() -> Void)? = nil
+
+    init(
+        selectedText: String,
+        pageIndex: Int,
+        onHighlight: @escaping (PDFHighlightColor) -> Void,
+        onMarkup: ((PDFHighlightColor, AnnotationMarkupStyle) -> Void)? = nil,
+        onUnhighlight: (() -> Void)? = nil,
+        onAddNote: @escaping (String) -> Void,
+        onCopy: @escaping () -> Void,
+        onSpeak: @escaping (String) -> Void,
+        onCreateZettelkastenCard: @escaping (String) -> Void,
+        onAddMarginaliaSymbol: ((String) -> Void)? = nil,
+        onDismiss: (() -> Void)? = nil
+    ) {
+        self.selectedText = selectedText
+        self.pageIndex = pageIndex
+        self.onHighlight = onHighlight
+        self.onMarkup = onMarkup
+        self.onUnhighlight = onUnhighlight
+        self.onAddNote = onAddNote
+        self.onCopy = onCopy
+        self.onSpeak = onSpeak
+        self.onCreateZettelkastenCard = onCreateZettelkastenCard
+        self.onAddMarginaliaSymbol = onAddMarginaliaSymbol
+        self.onDismiss = onDismiss
+    }
 
     @State private var showingNoteInput = false
     @State private var noteText = ""
