@@ -53,7 +53,12 @@ struct EBookReaderView: View {
     // Page state matching current chapter
     @State private var chapterPage: Int = 0
     @State private var chapterTotalPages: Int = 1
+    @State private var startAtEndOfChapter: Bool = false
     @StateObject private var velocityEngine = ReaderVelocityEngine()
+
+    private var sanitizedChapterPage: Int {
+        min(max(1, chapterPage + 1), max(1, chapterTotalPages))
+    }
 
     /// Direction of last chapter navigation — used to drive the push transition.
     @State private var isGoingForward: Bool = true
@@ -161,6 +166,7 @@ struct EBookReaderView: View {
                                 currentPage: $chapterPage,
                                 initialPage: chapterPage,
                                 totalPages:  $chapterTotalPages,
+                                startAtEndOfChapter: startAtEndOfChapter,
                                 onNext:      nextChapter,
                                 onPrev:      prevChapter,
                                 onCenterTap: { withAnimation(.easeInOut(duration: 0.2)) { showHUD.toggle() } },
@@ -568,7 +574,7 @@ struct EBookReaderView: View {
                 .disabled(currentIndex == 0)
                 
                 VStack(spacing: 2) {
-                    Text("Page \(chapterPage + 1) of \(chapterTotalPages)")
+                    Text("Page \(sanitizedChapterPage) of \(max(1, chapterTotalPages))")
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                     if let title = currentChapterTitle {
@@ -756,6 +762,7 @@ struct EBookReaderView: View {
         }
         HapticEngine.medium()
         isGoingForward = true
+        startAtEndOfChapter = false
         chapterPage = 0
         chapterScrollFraction = 0.0
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { currentIndex += 1 }
@@ -792,7 +799,8 @@ struct EBookReaderView: View {
         guard currentIndex > 0 else { return }
         HapticEngine.medium()
         isGoingForward = false
-        chapterPage = 99999 // Signal JS to jump to END of the previous chapter
+        startAtEndOfChapter = true
+        chapterPage = 0
         chapterScrollFraction = 1.0
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { currentIndex -= 1 }
         saveProgress()

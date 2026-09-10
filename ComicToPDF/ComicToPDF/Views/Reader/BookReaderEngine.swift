@@ -1268,17 +1268,14 @@ private func computeColumnCount(for size: CGSize) -> Int {
                             if prefs.paginationMode == EBookPaginationMode.paged.rawValue {
                                 // Native UIPageViewController(.pageCurl) for EPUB paged mode
                                 EBookPageCurlReader(
-                                    spineItem: EBookMetadata.SpineItem(
-                                        id: currentChapterURL.lastPathComponent,
-                                        href: currentChapterURL.lastPathComponent,
-                                        label: vm.tocItems[safe: vm.currentChapterIndex]?.label ?? ""
-                                    ),
-                                    unzipDir: currentChapterURL.deletingLastPathComponent(),
+                                    spineItem: EBookMetadata.SpineItem(id: "ch_\(vm.currentChapterIndex)", href: vm.chapterHtmlFiles[safe: vm.currentChapterIndex]?.lastPathComponent ?? "", title: vm.tocItems[safe: vm.currentChapterIndex]?.label.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)),
+                                    unzipDir: vm.unzipDir,
                                     prefs: prefs,
                                     colorScheme: colorScheme,
                                     currentPage: $chapterPage,
                                     initialPage: chapterPage,
                                     totalPages: $chapterTotalPages,
+                                    startAtEndOfChapter: scrollToLastPageOnLoad,
                                     onNext: {
                                         let lastIdx = vm.chapterHtmlFiles.count - 1
                                         if vm.currentChapterIndex >= lastIdx {
@@ -1293,7 +1290,7 @@ private func computeColumnCount(for size: CGSize) -> Int {
                                     onPrev: {
                                         scrollToLastPageOnLoad = true
                                         initialScrollFraction = 1.0
-                                        chapterPage = 99999
+                                        chapterPage = 0
                                         vm.loadChapter(index: max(0, vm.currentChapterIndex - 1))
                                     },
                                     onCenterTap: { chromeVisible.toggle() },
@@ -1404,7 +1401,7 @@ private func computeColumnCount(for size: CGSize) -> Int {
                                     onPrevChapter: {
                                         scrollToLastPageOnLoad = true
                                         initialScrollFraction = 1.0
-                                        chapterPage = 99999
+                                        chapterPage = 0
                                         vm.loadChapter(index: max(0, vm.currentChapterIndex - 1))
                                     }
                                 )
@@ -1737,7 +1734,8 @@ private func computeColumnCount(for size: CGSize) -> Int {
         let label = vm.tocItems[safe: vm.currentChapterIndex]?.label.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let displayLabel = !label.isEmpty ? label : "Section \(vm.currentChapterIndex + 1)"
         let total = max(1, chapterTotalPages)
-        return "Page \(chapterPage + 1) of \(total)  •  \(displayLabel)"
+        let safePage = min(max(1, chapterPage + 1), total)
+        return "Page \(safePage) of \(total)  •  \(displayLabel)"
     }
 
     @ViewBuilder
@@ -1857,7 +1855,7 @@ private func computeColumnCount(for size: CGSize) -> Int {
                 if vm.currentChapterIndex > 0 {
                     scrollToLastPageOnLoad = true
                     initialScrollFraction = 1.0
-                    chapterPage = 99999
+                    chapterPage = 0
                     vm.loadChapter(index: vm.currentChapterIndex - 1)
                 }
             } else {
@@ -1873,7 +1871,7 @@ private func computeColumnCount(for size: CGSize) -> Int {
                 if vm.currentChapterIndex > 0 {
                     scrollToLastPageOnLoad = true
                     initialScrollFraction = 1.0
-                    chapterPage = 99999
+                    chapterPage = 0
                     vm.loadChapter(index: vm.currentChapterIndex - 1)
                 }
             } else {

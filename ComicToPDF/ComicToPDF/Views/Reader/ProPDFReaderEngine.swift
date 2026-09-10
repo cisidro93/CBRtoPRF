@@ -1477,6 +1477,14 @@ struct ProPDFReaderEngine: View {
         let remaining = max(0, totalPages - (currentPageIndex + 1))
         if effectiveForward {
             if pdfView.canGoToNextPage {
+                // Smooth directional CoreAnimation slide eliminates abrupt white/page flashes
+                let transition = CATransition()
+                transition.duration = 0.22
+                transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                transition.type = .push
+                transition.subtype = .fromRight
+                pdfView.layer.add(transition, forKey: "pageFlipAnimation")
+
                 // goToNextPage handles twoUp spread boundaries natively —
                 // we never need to manually compute +1 or +2; PDFKit knows.
                 pdfView.goToNextPage(nil)
@@ -1486,6 +1494,13 @@ struct ProPDFReaderEngine: View {
             }
         } else {
             if pdfView.canGoToPreviousPage {
+                let transition = CATransition()
+                transition.duration = 0.22
+                transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                transition.type = .push
+                transition.subtype = .fromLeft
+                pdfView.layer.add(transition, forKey: "pageFlipAnimation")
+
                 pdfView.goToPreviousPage(nil)
                 velocityEngine.recordPageTurn(remainingPages: remaining)
             }

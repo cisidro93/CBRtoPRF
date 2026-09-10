@@ -17,6 +17,7 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
     @Binding var currentPage: Int
     var initialPage: Int
     @Binding var totalPages: Int
+    var startAtEndOfChapter: Bool = false
 
     var onNext: () -> Void
     var onPrev: () -> Void
@@ -134,6 +135,9 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
         if chapterChanged {
             context.coordinator.isTransitioning = false
             context.coordinator.computedTotalPages = 1
+            if self.startAtEndOfChapter || self.initialScrollFraction >= 0.99 {
+                context.coordinator.needsJumpToEnd = true
+            }
             context.coordinator.loadChapterAndPresent()
             return
         }
@@ -233,6 +237,7 @@ extension EBookPageCurlReader {
         private var styledCSS: String = ""
         var computedTotalPages: Int = 1
         var currentPageIndex: Int = 0
+        var needsJumpToEnd: Bool = false
         private var hasLoadedInitialPage: Bool = false
 
         // Primary master WKWebView — used for text layout, metrics & live interactions
@@ -491,8 +496,13 @@ extension EBookPageCurlReader {
                 // Mount primaryWebView on root so WebKit processes layout, metrics and JS immediately
                 self.mountPrimaryWebViewOnRoot()
 
+                if self.parent.startAtEndOfChapter || self.parent.initialScrollFraction >= 0.99 {
+                    self.needsJumpToEnd = true
+                }
+
                 // Load HTML into primary master WKWebView directly in-memory
-                let fullHTML = self.buildPageHTML(for: self.currentPageIndex)
+                let initialScriptPage = self.needsJumpToEnd ? 99999 : self.currentPageIndex
+                let fullHTML = self.buildPageHTML(for: initialScriptPage)
                 self.primaryWebView?.loadHTMLString(fullHTML, baseURL: self.chapterBaseURL)
 
                 // Present initial page VC
@@ -967,30 +977,19 @@ extension EBookPageCurlReader {
 
             let nextIndex = currentPageIndex + step
             if nextIndex < computedTotalPages {
-                if let vcs = pvc.viewControllers {
-                    captureSnapshot(for: vcs)
-                }
-                let vcs = spreadViewControllers(for: nextIndex)
                 HapticEngine.light()
-                isTransitioning = true
-                primaryWebView?.removeFromSuperview()
-                primaryWebView?.evaluateJavaScript("if(window.goToInksyncPage) window.goToInksyncPage(\(nextIndex));")
-                safeSetViewControllers(vcs, direction: .forward, animated: true) { [weak self, weak pvc] completed in
-                    self?.isTransitioning = false
-                    DispatchQueue.main.async {
-                        guard let self = self else { return }
-                        let targetIndex = completed ? nextIndex : self.currentPageIndex
-                        self.lastCompletedControllerIndex = targetIndex
-                        self.currentPageIndex = targetIndex
-                        self.parent.currentPage = targetIndex
-                        self.reportScrollFraction()
-                        self.primaryWebView?.evaluateJavaScript("if(window.goToInksyncPage) window.goToInksyncPage(\(targetIndex));")
-                        self.mountPrimaryWebViewOnRoot()
-                        if let activeVCs = pvc?.viewControllers {
-                            self.captureSnapshot(for: activeVCs)
-                        }
-                    }
-                }
+                let animate = (parent.prefs.pageTurnStyle != .instant)
+                currentPageIndex = nextIndex
+                parent.currentPage = nextIndex
+                reportScrollFraction()
+                
+                // Smooth 120Hz CSS hardware-accelerated slide within the active chapter
+                primaryWebView?.evaluateJavaScript("if(window.goToInksyncPage) window.goToInksyncPage(\(nextIndex), \(animate ? "true" : "false"));")
+                
+                // Keep UIPageViewController underlying view controllers synchronized without tearing down the webview
+                let vcs = spreadViewControllers(for: nextIndex)
+                safeSetViewControllers(vcs, direction: .forward, animated: false)
+                precacheAdjacentSnapshots()
             } else {
                 parent.onNext()
             }
@@ -1006,30 +1005,19 @@ extension EBookPageCurlReader {
 
             let prevIndex = currentPageIndex - step
             if prevIndex >= 0 {
-                if let vcs = pvc.viewControllers {
-                    captureSnapshot(for: vcs)
-                }
-                let vcs = spreadViewControllers(for: prevIndex)
                 HapticEngine.light()
-                isTransitioning = true
-                primaryWebView?.removeFromSuperview()
-                primaryWebView?.evaluateJavaScript("if(window.goToInksyncPage) window.goToInksyncPage(\(prevIndex));")
-                safeSetViewControllers(vcs, direction: .reverse, animated: true) { [weak self, weak pvc] completed in
-                    self?.isTransitioning = false
-                    DispatchQueue.main.async {
-                        guard let self = self else { return }
-                        let targetIndex = completed ? prevIndex : self.currentPageIndex
-                        self.lastCompletedControllerIndex = targetIndex
-                        self.currentPageIndex = targetIndex
-                        self.parent.currentPage = targetIndex
-                        self.reportScrollFraction()
-                        self.primaryWebView?.evaluateJavaScript("if(window.goToInksyncPage) window.goToInksyncPage(\(targetIndex));")
-                        self.mountPrimaryWebViewOnRoot()
-                        if let activeVCs = pvc?.viewControllers {
-                            self.captureSnapshot(for: activeVCs)
-                        }
-                    }
-                }
+                let animate = (parent.prefs.pageTurnStyle != .instant)
+                currentPageIndex = prevIndex
+                parent.currentPage = prevIndex
+                reportScrollFraction()
+                
+                // Smooth 120Hz CSS hardware-accelerated slide within the active chapter
+                primaryWebView?.evaluateJavaScript("if(window.goToInksyncPage) window.goToInksyncPage(\(prevIndex), \(animate ? "true" : "false"));")
+                
+                // Keep UIPageViewController underlying view controllers synchronized without tearing down the webview
+                let vcs = spreadViewControllers(for: prevIndex)
+                safeSetViewControllers(vcs, direction: .reverse, animated: false)
+                precacheAdjacentSnapshots()
             } else {
                 parent.onPrev()
             }
@@ -1151,21 +1139,25 @@ extension EBookPageCurlReader {
                 parent.totalPages = clampedTotal
             }
 
-            if !hasLoadedInitialPage {
+            if !hasLoadedInitialPage || needsJumpToEnd || parent.startAtEndOfChapter {
                 hasLoadedInitialPage = true
 
                 var targetPage = clampedCurrent
-                if parent.initialPage == 0 && parent.initialScrollFraction > 0.01 && clampedTotal > 1 {
+                if needsJumpToEnd || parent.startAtEndOfChapter || parent.initialScrollFraction >= 0.99 {
+                    targetPage = max(0, clampedTotal - 1)
+                    needsJumpToEnd = false
+                    parent.startAtEndOfChapter = false
+                } else if parent.initialPage == 0 && parent.initialScrollFraction > 0.01 && clampedTotal > 1 {
                     targetPage = Int((parent.initialScrollFraction * Double(clampedTotal - 1)).rounded())
                 } else if parent.initialPage >= 99999 {
-                    targetPage = clampedTotal - 1
+                    targetPage = max(0, clampedTotal - 1)
                 } else if parent.initialPage > 0 && parent.initialPage < clampedTotal {
                     targetPage = parent.initialPage
                 }
 
                 currentPageIndex = targetPage
                 parent.currentPage = targetPage
-                primaryWebView?.evaluateJavaScript("if(window.goToInksyncPage) window.goToInksyncPage(\(targetPage));")
+                primaryWebView?.evaluateJavaScript("if(window.goToInksyncPage) window.goToInksyncPage(\(targetPage), false);")
                 let vcs = spreadViewControllers(for: targetPage)
                 safeSetViewControllers(vcs, direction: .forward, animated: false)
                 reportScrollFraction()
@@ -1581,7 +1573,7 @@ extension EBookPageCurlReader {
                 return w > 0 ? w : 1;
             }
 
-            function applyPagePosition() {
+            function applyPagePosition(animated) {
                 var pageStep = getPageStep();
                 if (pageStep <= 0) return;
                 if (_targetPage >= 99999) return; // Wait for computeMetrics to resolve true total pages!
@@ -1590,15 +1582,22 @@ extension EBookPageCurlReader {
 
                 var vp = document.getElementById('inksync-viewport') || document.body;
                 if (vp) {
-                    vp.style.transform = 'translateX(-' + shift + 'px)';
-                    vp.style.webkitTransform = 'translateX(-' + shift + 'px)';
+                    if (animated === true) {
+                        vp.style.transition = 'transform 0.22s cubic-bezier(0.25, 1, 0.5, 1)';
+                        vp.style.webkitTransition = '-webkit-transform 0.22s cubic-bezier(0.25, 1, 0.5, 1)';
+                    } else {
+                        vp.style.transition = 'none';
+                        vp.style.webkitTransition = 'none';
+                    }
+                    vp.style.transform = 'translate3d(-' + shift + 'px, 0, 0)';
+                    vp.style.webkitTransform = 'translate3d(-' + shift + 'px, 0, 0)';
                 }
             }
 
-            applyPagePosition();
+            applyPagePosition(false);
 
             document.addEventListener('DOMContentLoaded', function() {
-                applyPagePosition();
+                applyPagePosition(false);
                 document.querySelectorAll('*').forEach(function(el) {
                     if (el.tagName !== 'MARK' && !el.classList.contains('inksync-highlight')) {
                         el.style.removeProperty('background-color');
@@ -1648,13 +1647,13 @@ extension EBookPageCurlReader {
                 if (_targetPage >= 99999 || _targetPage >= _totalPages) {
                     _targetPage = Math.max(0, _totalPages - 1);
                 }
-                applyPagePosition();
+                applyPagePosition(false);
                 return _totalPages;
             }
 
-            function goToPage(page) {
+            function goToPage(page, animated) {
                 _targetPage = Math.max(0, Math.min(page, _totalPages - 1));
-                applyPagePosition();
+                applyPagePosition(animated);
             }
             window.goToInksyncPage = goToPage;
 

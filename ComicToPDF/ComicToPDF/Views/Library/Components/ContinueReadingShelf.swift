@@ -20,11 +20,11 @@ struct ContinueReadingShelf: View {
     
     var body: some View {
         if !displayItems.isEmpty {
-            VStack(spacing: 12) {
+            VStack(spacing: 10) {
                 // Subtle Header
                 HStack {
                     Text("Continue Reading")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.textSecondary)
                         .textCase(.uppercase)
                         .tracking(1.2)
@@ -32,7 +32,7 @@ struct ContinueReadingShelf: View {
                 }
                 .padding(.horizontal, hSizeClass == .regular ? 24 : 16)
                 
-                // Hero Banner Carousel
+                // Hero Banner Carousel — Compact height (~118pt iPhone, 132pt iPad)
                 TabView(selection: $activeIndex) {
                     ForEach(Array(displayItems.enumerated()), id: \.element.id) { index, pdf in
                         PremiumHeroCard(pdf: pdf)
@@ -42,27 +42,28 @@ struct ContinueReadingShelf: View {
                     }
                 }
                 .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
-                .frame(height: hSizeClass == .regular ? 260 : 380)
+                .frame(height: hSizeClass == .regular ? 132 : 118)
                 
                 // Custom Dot Indicator
                 if displayItems.count > 1 {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         ForEach(0..<displayItems.count, id: \.self) { index in
                             Circle()
-                                .fill(activeIndex == index ? Theme.purple : Theme.textTertiary)
-                                .frame(width: activeIndex == index ? 8 : 6, height: activeIndex == index ? 8 : 6)
+                                .fill(activeIndex == index ? Theme.purple : Theme.textTertiary.opacity(0.6))
+                                .frame(width: activeIndex == index ? 7 : 5, height: activeIndex == index ? 7 : 5)
                                 .animation(.spring(response: 0.3), value: activeIndex)
                         }
                     }
+                    .padding(.top, 2)
                 }
             }
-            .padding(.top, 16)
-            .padding(.bottom, 8)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
         }
     }
 }
 
-// MARK: - Premium Hero Card
+// MARK: - Premium Hero Card (Compact Horizontal Layout)
 
 private struct PremiumHeroCard: View {
     let pdf: ConvertedPDF
@@ -83,36 +84,129 @@ private struct PremiumHeroCard: View {
                         .resizable()
                         .scaledToFill()
                         .frame(width: geo.size.width, height: geo.size.height)
-                        .blur(radius: 40)
-                        .overlay(Color.black.opacity(0.4))
+                        .blur(radius: 35)
+                        .overlay(Color.black.opacity(0.55))
                         .clipped()
                 } else {
                     Theme.surfaceElevated
                 }
                 
                 // 2. Glassmorphism Container
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(.ultraThinMaterial)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .stroke(
                                 LinearGradient(
-                                    colors: [Color.white.opacity(0.3), Color.white.opacity(0.05)],
+                                    colors: [Color.white.opacity(0.25), Color.white.opacity(0.06)],
                                     startPoint: .topLeading, endPoint: .bottomTrailing
                                 ),
                                 lineWidth: 1
                             )
                     )
                 
-                // 3. Content Layout (iPad vs iPhone)
-                if hSizeClass == .regular {
-                    iPadLayout(geo: geo)
-                } else {
-                    iPhoneLayout(geo: geo)
+                // 3. Compact Horizontal Content
+                HStack(spacing: hSizeClass == .regular ? 16 : 12) {
+                    // Cover Thumbnail
+                    ZStack {
+                        if let img = cover {
+                            Image(uiImage: img)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Theme.surfaceElevated)
+                            Image(systemName: "book.closed.fill")
+                                .font(.system(size: 24))
+                                .foregroundStyle(Theme.textSecondary)
+                        }
+                    }
+                    .frame(
+                        width: hSizeClass == .regular ? 76 : 64,
+                        height: hSizeClass == .regular ? 104 : 88
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.white.opacity(0.15), lineWidth: 0.8)
+                    )
+                    .shadow(color: .black.opacity(0.4), radius: 6, y: 3)
+                    
+                    // Book Metadata & Glowing Progress
+                    VStack(alignment: .leading, spacing: 3) {
+                        if let series = pdf.metadata.series, !series.isEmpty {
+                            Text(series.uppercased())
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .foregroundStyle(Theme.purple)
+                                .tracking(1.2)
+                                .lineLimit(1)
+                        }
+                        
+                        Text(pdf.name)
+                            .font(.system(size: hSizeClass == .regular ? 16 : 14, weight: .bold))
+                            .foregroundColor(.white)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .shadow(radius: 1)
+                        
+                        Spacer(minLength: 2)
+                        
+                        // Progress Percentage & Page Count
+                        HStack(spacing: 4) {
+                            Text("\(Int(progress * 100))%")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(Theme.purple)
+                            
+                            Text("·")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.white.opacity(0.4))
+                            
+                            Text("Page \(pdf.metadata.lastReadPage ?? 0) of \(pdf.pageCount)")
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundColor(.white.opacity(0.65))
+                        }
+                        
+                        // Glowing Neon Progress Bar
+                        GeometryReader { barGeo in
+                            ZStack(alignment: .leading) {
+                                Capsule()
+                                    .fill(Color.white.opacity(0.12))
+                                    .frame(height: 5)
+                                Capsule()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [Theme.purple, Color.pink],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .frame(width: max(0, min(barGeo.size.width * progress, barGeo.size.width)), height: 5)
+                                    .shadow(color: Theme.purple.opacity(0.8), radius: 6, y: 0)
+                            }
+                        }
+                        .frame(height: 5)
+                        .padding(.top, 2)
+                    }
+                    .padding(.vertical, 4)
+                    
+                    // Resume Action Button
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: hSizeClass == .regular ? 36 : 30))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [Theme.purple, Color.pink],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .shadow(color: Theme.purple.opacity(0.6), radius: 8, y: 2)
+                        .padding(.trailing, 2)
                 }
+                .padding(.horizontal, hSizeClass == .regular ? 16 : 12)
+                .padding(.vertical, hSizeClass == .regular ? 14 : 10)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: .black.opacity(0.25), radius: 12, y: 5)
         }
         .task(id: pdf.id) {
             let key = pdf.id.uuidString as NSString
@@ -131,134 +225,6 @@ private struct PremiumHeroCard: View {
                let image = note.userInfo?["image"] as? UIImage {
                 self.cover = image
             }
-        }
-    }
-    
-    // MARK: - iPad Wide Layout
-    @ViewBuilder
-    private func iPadLayout(geo: GeometryProxy) -> some View {
-        HStack(spacing: 24) {
-            // High-Res Crisp Cover
-            ZStack {
-                if let img = cover {
-                    Image(uiImage: img)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Image(systemName: "book.closed.fill")
-                        .font(.system(size: 40))
-                        .foregroundStyle(Theme.textSecondary)
-                }
-            }
-            .frame(width: 160, height: 220)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
-            
-            // Info & Progress
-            VStack(alignment: .leading, spacing: 8) {
-                if let series = pdf.metadata.series, !series.isEmpty {
-                    Text(series.uppercased())
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.purple)
-                        .tracking(1.5)
-                }
-                
-                Text(pdf.name)
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundColor(.white)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .shadow(radius: 2)
-                
-                Spacer()
-                
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("\(Int(progress * 100))% COMPLETED")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.7))
-                        Spacer()
-                        Text("\(pdf.metadata.lastReadPage ?? 0) / \(pdf.pageCount)")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.5))
-                    }
-                    
-                    // Glowing Neon Progress Bar
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.1)).frame(height: 6)
-                        Capsule()
-                            .fill(LinearGradient(colors: [Theme.purple, Color.pink], startPoint: .leading, endPoint: .trailing))
-                            .frame(width: geo.size.width * CGFloat(0.4) * progress, height: 6) // Roughly 40% of geo width is the bar area
-                            .shadow(color: Theme.purple.opacity(0.8), radius: 8, y: 0)
-                    }
-                }
-            }
-            .padding(.vertical, 20)
-            Spacer()
-            
-            // Action Button
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(LinearGradient(colors: [Theme.purple, Color.pink], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .shadow(color: Theme.purple.opacity(0.5), radius: 10, y: 4)
-                .padding(.trailing, 12)
-        }
-        .padding(20)
-    }
-    
-    // MARK: - iPhone Tall Layout
-    @ViewBuilder
-    private func iPhoneLayout(geo: GeometryProxy) -> some View {
-        VStack(spacing: 0) {
-            // Full Width Cover Top
-            ZStack(alignment: .bottom) {
-                if let img = cover {
-                    Image(uiImage: img)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(height: 240)
-                        .clipped()
-                } else {
-                    Rectangle().fill(Theme.surfaceElevated).frame(height: 240)
-                    Image(systemName: "book.closed.fill")
-                        .font(.system(size: 40))
-                        .foregroundStyle(Theme.textSecondary)
-                }
-                
-                // Gradient Fade to Body
-                LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 100)
-            }
-            
-            // Info & Progress Bottom
-            VStack(alignment: .leading, spacing: 8) {
-                if let series = pdf.metadata.series, !series.isEmpty {
-                    Text(series.uppercased())
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.purple)
-                        .tracking(1.5)
-                }
-                
-                Text(pdf.name)
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.white)
-                    .lineLimit(2)
-                    .shadow(radius: 2)
-                
-                Spacer()
-                
-                // Glowing Neon Progress Bar
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.1)).frame(height: 6)
-                    Capsule()
-                        .fill(LinearGradient(colors: [Theme.purple, Color.pink], startPoint: .leading, endPoint: .trailing))
-                        .frame(width: max(CGFloat(0), (geo.size.width - CGFloat(40)) * progress), height: 6)
-                        .shadow(color: Theme.purple.opacity(0.8), radius: 8, y: 0)
-                }
-                .padding(.bottom, 4)
-            }
-            .padding(20)
-            .frame(height: 140)
         }
     }
 }
