@@ -1456,7 +1456,7 @@ extension EBookPageCurlReader {
                 opacity: 0.9 !important;
                 vertical-align: super !important;
             }
-            html, body {
+            html {
                 margin: 0 !important; padding: 0 !important;
                 width: 100% !important;
                 height: 100% !important;
@@ -1476,7 +1476,7 @@ extension EBookPageCurlReader {
                 margin: 0 !important;
                 width: 100% !important;
                 height: 100% !important;
-                overflow: hidden !important;
+                overflow: visible !important;
                 background-color: transparent !important;
                 word-wrap: break-word;
                 -webkit-text-size-adjust: none;

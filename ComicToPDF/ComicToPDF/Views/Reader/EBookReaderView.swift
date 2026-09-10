@@ -821,8 +821,10 @@ struct EBookReaderView: View {
         if let targetChapter = notification.userInfo?["chapterTitle"] as? String,
            let meta = metadata,
            let chapterIdx = meta.spineItems.firstIndex(where: {
-               ($0.title ?? "").localizedCaseInsensitiveContains(targetChapter) ||
-               targetChapter.localizedCaseInsensitiveContains($0.title ?? "")
+               $0.label.localizedCaseInsensitiveContains(targetChapter) ||
+               targetChapter.localizedCaseInsensitiveContains($0.label) ||
+               ($0.tocTitle ?? "").localizedCaseInsensitiveContains(targetChapter) ||
+               targetChapter.localizedCaseInsensitiveContains($0.tocTitle ?? "")
            }) {
             if chapterIdx != currentIndex {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
@@ -2200,9 +2202,10 @@ struct EBookWebReader: View {
             padding-bottom: 60px !important;
             padding-left: \(paddingLeft)px !important;
             padding-right: \(paddingRight)px !important;
-            width: 100% !important;
-            max-width: 100% !important;
+            width: auto !important;
+            max-width: none !important;
             height: 100% !important;
+            overflow: visible !important;
             \(pagedCSS)
             """ : """
             display: block !important;
