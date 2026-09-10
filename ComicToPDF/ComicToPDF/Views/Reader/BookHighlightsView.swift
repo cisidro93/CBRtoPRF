@@ -580,7 +580,7 @@ struct BookHighlightsView: View {
         let id = annotation.id
         modelContext.delete(annotation)
         try? modelContext.save()
-        AnnotationStore.shared.removeAnnotation(id: id, for: targetPDFID)
+        AnnotationStore.shared.delete(id: id, pdfID: targetPDFID)
         withAnimation {
             bookHighlights.removeAll { $0.id == id }
         }

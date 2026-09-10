@@ -497,6 +497,11 @@ class AnnotationStore: ObservableObject {
         )
     }
     
+    /// Convenience alias matching removeAnnotation(id:for:)
+    func removeAnnotation(id: UUID, for pdfID: UUID) {
+        delete(id: id, pdfID: pdfID)
+    }
+    
     // MARK: - SwiftData Persistence
     
     private func loadAll() {
