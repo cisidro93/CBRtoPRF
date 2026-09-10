@@ -4,6 +4,8 @@ import PencilKit
 import Combine
 import SwiftData
 
+extension PDFPage: @retroactive @unchecked Sendable {}
+
 // MARK: - PDFPageCanvasProvider
 
 /// High-performance, zero-drift canvas provider for PDFKit utilizing Apple's native
