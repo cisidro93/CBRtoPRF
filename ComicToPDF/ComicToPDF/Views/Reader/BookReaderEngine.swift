@@ -1263,61 +1263,8 @@ private func computeColumnCount(for size: CGSize) -> Int {
                     )
                 } else {
                     if !vm.chapterHtmlFiles.isEmpty {
-                        let currentChapterURL = vm.chapterHtmlFiles[vm.currentChapterIndex]
                         ZStack {
-                            if prefs.paginationMode == EBookPaginationMode.paged.rawValue {
-                                // Native UIPageViewController(.pageCurl) for EPUB paged mode
-                                EBookPageCurlReader(
-                                    spineItem: currentCurlSpineItem,
-                                    unzipDir: vm.unzipDir,
-                                    prefs: prefs,
-                                    colorScheme: colorScheme,
-                                    currentPage: $chapterPage,
-                                    initialPage: chapterPage,
-                                    totalPages: $chapterTotalPages,
-                                    startAtEndOfChapter: scrollToLastPageOnLoad,
-                                    onNext: handleNextChapter,
-                                    onPrev: handlePrevChapter,
-                                    onCenterTap: { chromeVisible.toggle() },
-                                    onHighlightCreated: { selectedText in
-                                        recordHighlight(selectedText: selectedText, hexColor: "#FFD600")
-                                    },
-                                    onHighlightTapped: handleHighlightTapped,
-                                    pdfID: pdf.id,
-                                    initialScrollFraction: initialScrollFraction,
-                                    onScrollFractionChanged: handleScrollFractionChanged,
-                                    webViewRef: $webViewReference,
-                                    onFootnoteTapped: { text in
-                                        activeFootnoteText = text
-                                    }
-                                )
-                                .id(curlReaderId)
-                            } else {
-                                // Scroll mode: EPUBWebView continuous vertical scroll
-                                EPUBWebView(
-                                    htmlContent: $vm.currentChapterHTML,
-                                    baseUrl: .constant(currentChapterURL),
-                                    prefs: EBookPreferences.shared,
-                                    scrollToLastPageOnLoad: $scrollToLastPageOnLoad,
-                                    initialScrollFraction: initialScrollFraction,
-                                    onScrollFractionChanged: handleScrollFractionChanged,
-                                    webViewRef: $webViewReference,
-                                    pdf: pdf,
-                                    currentPage: $chapterPage,
-                                    totalPages: $chapterTotalPages,
-                                    onHighlightCreated: { selectedText, _ in
-                                        recordHighlight(selectedText: selectedText, hexColor: "#FFD600")
-                                    },
-                                    onPageLoaded: handlePageLoaded,
-                                    onCenterTap: { chromeVisible.toggle() },
-                                    onLeftTap: { if isMangaMode { pageForward() } else { pageBackward() } },
-                                    onRightTap: { if isMangaMode { pageBackward() } else { pageForward() } },
-                                    onNextChapter: handleNextChapter,
-                                    onPrevChapter: handlePrevChapter
-                                )
-                                .ignoresSafeArea()
-                                .id(epubChapterId)
-                            }
+                            epubReaderContent
                         }
                         .readingFilter(prefs.readingFilter)
                         
@@ -1733,6 +1680,73 @@ private func computeColumnCount(for size: CGSize) -> Int {
         let total = max(1, chapterTotalPages)
         let safePage = min(max(1, chapterPage + 1), total)
         return "Page \(safePage) of \(total)  •  \(displayLabel)"
+    }
+
+    @ViewBuilder
+    private var epubReaderContent: some View {
+        if prefs.paginationMode == EBookPaginationMode.paged.rawValue {
+            curlReaderView
+        } else {
+            scrolledReaderView
+        }
+    }
+
+    @ViewBuilder
+    private var curlReaderView: some View {
+        EBookPageCurlReader(
+            spineItem: currentCurlSpineItem,
+            unzipDir: vm.unzipDir,
+            prefs: prefs,
+            colorScheme: colorScheme,
+            currentPage: $chapterPage,
+            initialPage: chapterPage,
+            totalPages: $chapterTotalPages,
+            startAtEndOfChapter: scrollToLastPageOnLoad,
+            onNext: handleNextChapter,
+            onPrev: handlePrevChapter,
+            onCenterTap: { chromeVisible.toggle() },
+            onHighlightCreated: { selectedText in
+                recordHighlight(selectedText: selectedText, hexColor: "#FFD600")
+            },
+            onHighlightTapped: handleHighlightTapped,
+            pdfID: pdf.id,
+            initialScrollFraction: initialScrollFraction,
+            onScrollFractionChanged: handleScrollFractionChanged,
+            webViewRef: $webViewReference,
+            onFootnoteTapped: { text in
+                activeFootnoteText = text
+            }
+        )
+        .id(curlReaderId)
+    }
+
+    @ViewBuilder
+    private var scrolledReaderView: some View {
+        if let currentChapterURL = vm.chapterHtmlFiles[safe: vm.currentChapterIndex] {
+            EPUBWebView(
+                htmlContent: $vm.currentChapterHTML,
+                baseUrl: .constant(currentChapterURL),
+                prefs: EBookPreferences.shared,
+                scrollToLastPageOnLoad: $scrollToLastPageOnLoad,
+                initialScrollFraction: initialScrollFraction,
+                onScrollFractionChanged: handleScrollFractionChanged,
+                webViewRef: $webViewReference,
+                pdf: pdf,
+                currentPage: $chapterPage,
+                totalPages: $chapterTotalPages,
+                onHighlightCreated: { selectedText, _ in
+                    recordHighlight(selectedText: selectedText, hexColor: "#FFD600")
+                },
+                onPageLoaded: handlePageLoaded,
+                onCenterTap: { chromeVisible.toggle() },
+                onLeftTap: { if isMangaMode { pageForward() } else { pageBackward() } },
+                onRightTap: { if isMangaMode { pageBackward() } else { pageForward() } },
+                onNextChapter: handleNextChapter,
+                onPrevChapter: handlePrevChapter
+            )
+            .ignoresSafeArea()
+            .id(epubChapterId)
+        }
     }
 
     @ViewBuilder
