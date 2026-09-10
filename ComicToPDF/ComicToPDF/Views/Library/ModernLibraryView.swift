@@ -212,9 +212,13 @@ struct ModernLibraryView: View {
     // MARK: - Notification Handlers
     private func handleOpenMergedBook(_ notification: Notification) {
         if let newBook = notification.object as? ConvertedPDF {
-            Task {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                await MainActor.run { AppRouter.shared.presentFullScreen(.read(newBook)) }
+            if router.activeFullScreen != nil {
+                router.updateCurrentReaderBook(newBook)
+            } else {
+                Task {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    await MainActor.run { AppRouter.shared.presentFullScreen(.read(newBook)) }
+                }
             }
         }
     }

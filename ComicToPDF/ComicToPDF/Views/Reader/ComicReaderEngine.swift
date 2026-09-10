@@ -2097,40 +2097,14 @@ struct ComicReaderEngine: View {
         }
     }
 
-    // MARK: - Series Continuation
+    // MARK: - Series & Collection Continuation
 
-    /// Called when the reader reaches the last page of the file.
-    /// Posts openMergedBook with the next volume in the series so the library
-    /// auto-transitions — mirrors the same logic in BookReaderEngine and EBookReaderView.
+    /// Called when the reader reaches the last page of the file or flips past the end.
+    /// Delegates to ReadingContinuationResolver to auto-transition to the next issue
+    /// in the user's custom collection (story arc), virtual omnibus, or publisher series.
     private func attemptComicSeriesContinuation() {
-        guard let seriesName = pdf.metadata.series, !seriesName.isEmpty else { return }
-
-        // Numeric-first sort with localizedStandardCompare fallback for "HC", "TPB", "#0" etc.
-        let siblings = allBooks
-            .filter { $0.metadata.series == seriesName && $0.id != pdf.id }
-            .sorted { lhs, rhs in
-                let lhsNum = Double(lhs.metadata.issueNumber ?? lhs.metadata.volume ?? "")
-                let rhsNum = Double(rhs.metadata.issueNumber ?? rhs.metadata.volume ?? "")
-                if let l = lhsNum, let r = rhsNum { return l < r }
-                let lKey = lhs.metadata.issueNumber ?? lhs.metadata.volume ?? lhs.name
-                let rKey = rhs.metadata.issueNumber ?? rhs.metadata.volume ?? rhs.name
-                return lKey.localizedStandardCompare(rKey) == .orderedAscending
-            }
-
-        guard !siblings.isEmpty else { return }
-
-        let selfKey = pdf.metadata.issueNumber ?? pdf.metadata.volume ?? pdf.name
-        if let currentIdx = siblings.firstIndex(where: {
-            ($0.metadata.issueNumber ?? $0.metadata.volume ?? $0.name) == selfKey
-        }) {
-            let nextIdx = siblings.index(after: currentIdx)
-            guard siblings.indices.contains(nextIdx) else { return }
-            NotificationCenter.default.post(name: .openMergedBook, object: siblings[nextIdx])
-        } else if let first = siblings.first {
-            // Current book not found in sorted siblings (missing series metadata) —
-            // fall back to opening the first sibling so the user always gets a next book.
-            NotificationCenter.default.post(name: .openMergedBook, object: first)
-        }
+        saveReadingProgress()
+        _ = ReadingContinuationResolver.shared.continueReading(after: pdf, in: allBooks)
     }
 
 

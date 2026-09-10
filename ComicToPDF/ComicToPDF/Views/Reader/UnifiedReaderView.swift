@@ -2,9 +2,23 @@ import SwiftUI
 import ZIPFoundation
 
 struct UnifiedReaderView: View {
-    let pdf: ConvertedPDF
+    let initialPDF: ConvertedPDF
     /// All books in the library — used for series-end continuation (next volume).
     var allBooks: [ConvertedPDF] = []
+    @State private var currentBook: ConvertedPDF
+    var pdf: ConvertedPDF { currentBook }
+
+    private var effectiveAllBooks: [ConvertedPDF] {
+        if !allBooks.isEmpty {
+            return allBooks
+        }
+        let libraryItems = LibraryService.shared.items
+        if !libraryItems.isEmpty {
+            return libraryItems
+        }
+        return ConversionManager.shared.convertedPDFs
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var sizeClass
     
@@ -14,8 +28,9 @@ struct UnifiedReaderView: View {
     @State private var notebookWidth: CGFloat = 380
 
     init(pdf: ConvertedPDF, allBooks: [ConvertedPDF] = [], startWithNotebookOpen: Bool = false) {
-        self.pdf = pdf
+        self.initialPDF = pdf
         self.allBooks = allBooks
+        self._currentBook = State(initialValue: pdf)
         self._showNotebookPanel = State(initialValue: startWithNotebookOpen)
         
         let initialCheck: Bool?
@@ -223,11 +238,14 @@ struct UnifiedReaderView: View {
                     
                     switch resolvedReaderEngine.engine {
                     case .comic:
-                        ComicReaderEngine(pdf: pdf, onDismiss: { dismiss() }, allBooks: allBooks)
+                        ComicReaderEngine(pdf: currentBook, onDismiss: { dismiss() }, allBooks: effectiveAllBooks)
+                            .id(currentBook.id)
                     case .proPDF:
-                        ProPDFReaderEngine(pdf: pdf, onDismiss: { dismiss() }, allBooks: allBooks)
+                        ProPDFReaderEngine(pdf: currentBook, onDismiss: { dismiss() }, allBooks: effectiveAllBooks)
+                            .id(currentBook.id)
                     case .eBook:
-                        EBookReaderView(fileURL: pdf.url, title: pdf.name, pdf: pdf, onExit: { dismiss() }, allBooks: allBooks)
+                        EBookReaderView(fileURL: currentBook.url, title: currentBook.name, pdf: currentBook, onExit: { dismiss() }, allBooks: effectiveAllBooks)
+                            .id(currentBook.id)
                     case .checkingEPUB:
                         ProgressView("Loading…")
                             .foregroundColor(.white)
@@ -346,6 +364,17 @@ struct UnifiedReaderView: View {
                 ConversionManager.shared.updateContentType(for: pdf.id, to: .book)
             }
             logReaderRouting(trigger: "Fallback to Book Reader")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openMergedBook)) { notif in
+            if let nextBook = notif.object as? ConvertedPDF, nextBook.id != currentBook.id {
+                Logger.shared.log("UnifiedReaderView: auto-transitioning in-place to '\(nextBook.name)'", category: "Reader", type: .info)
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    currentBook = nextBook
+                    activeEngineOverride = nil
+                    epubComicCheckResult = (nextBook.url.pathExtension.lowercased() == "epub" && nextBook.contentType == .book) ? false : nil
+                }
+                AppRouter.shared.updateCurrentReaderBook(nextBook)
+            }
         }
         .onAppear {
             // Auto-heal misclassified PDF books that were mistakenly tagged as comic without explicit user choice

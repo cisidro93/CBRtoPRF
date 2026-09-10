@@ -770,29 +770,13 @@ struct EBookReaderView: View {
         trackEBookProgress()
     }
 
-    /// Looks up the next unread book in the same series and posts OpenMergedBook so the
-    /// library router opens it seamlessly — identical to the binge-mode flow in ReaderView.
+    /// Delegates to ReadingContinuationResolver to auto-transition to the next book
+    /// in the user's custom collection (story arc), virtual omnibus, or publisher series.
     private func attemptSeriesContinuation() {
-        guard let currentPDF = pdf,
-              let seriesName = currentPDF.metadata.series, !seriesName.isEmpty else { return }
-
-        // Include ALL books in the series (including the current) so we can find the
-        // current book's position and step to the next. Excluding it breaks firstIndex.
-        let siblings = allBooks
-            .filter { $0.metadata.series == seriesName }
-            .sorted { lhs, rhs in
-                let lhsNum = Double(lhs.metadata.issueNumber ?? lhs.metadata.volume ?? "")
-                let rhsNum = Double(rhs.metadata.issueNumber ?? rhs.metadata.volume ?? "")
-                if let l = lhsNum, let r = rhsNum { return l < r }
-                let lKey = lhs.metadata.issueNumber ?? lhs.metadata.volume ?? lhs.name
-                let rKey = rhs.metadata.issueNumber ?? rhs.metadata.volume ?? rhs.name
-                return lKey.localizedStandardCompare(rKey) == .orderedAscending
-            }
-
-        guard let currentIdx = siblings.firstIndex(where: { $0.id == currentPDF.id }) else { return }
-        let nextIdx = siblings.index(after: currentIdx)
-        guard siblings.indices.contains(nextIdx) else { return }
-        NotificationCenter.default.post(name: .openMergedBook, object: siblings[nextIdx])
+        guard let currentPDF = pdf else { return }
+        saveProgress()
+        trackEBookProgress()
+        _ = ReadingContinuationResolver.shared.continueReading(after: currentPDF, in: allBooks)
     }
 
     private func prevChapter() {

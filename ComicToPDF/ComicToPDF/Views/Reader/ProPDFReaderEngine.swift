@@ -1381,28 +1381,8 @@ struct ProPDFReaderEngine: View {
     }
 
     private func attemptPDFSeriesContinuation() {
-        guard let seriesName = pdf.metadata.series, !seriesName.isEmpty else { return }
-        let siblings = allBooks
-            .filter { $0.metadata.series == seriesName && $0.id != pdf.id }
-            .sorted { lhs, rhs in
-                let lhsNum = Double(lhs.metadata.issueNumber ?? lhs.metadata.volume ?? "")
-                let rhsNum = Double(rhs.metadata.issueNumber ?? rhs.metadata.volume ?? "")
-                if let l = lhsNum, let r = rhsNum { return l < r }
-                let lKey = lhs.metadata.issueNumber ?? lhs.metadata.volume ?? lhs.name
-                let rKey = rhs.metadata.issueNumber ?? rhs.metadata.volume ?? rhs.name
-                return lKey.localizedStandardCompare(rKey) == .orderedAscending
-            }
-        guard !siblings.isEmpty else { return }
-        let selfKey = pdf.metadata.issueNumber ?? pdf.metadata.volume ?? pdf.name
-        if let currentIdx = siblings.firstIndex(where: {
-            ($0.metadata.issueNumber ?? $0.metadata.volume ?? $0.name) == selfKey
-        }) {
-            let nextIdx = siblings.index(after: currentIdx)
-            guard siblings.indices.contains(nextIdx) else { return }
-            NotificationCenter.default.post(name: .openMergedBook, object: siblings[nextIdx])
-        } else if let first = siblings.first {
-            NotificationCenter.default.post(name: .openMergedBook, object: first)
-        }
+        saveReadingProgress()
+        _ = ReadingContinuationResolver.shared.continueReading(after: pdf, in: allBooks)
     }
 
     private func saveReadingProgress() {

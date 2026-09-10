@@ -22,6 +22,15 @@ import SwiftUI
     @State private var isTruncated = false
     @State private var selectedPDF: ConvertedPDF? = nil
 
+    private var allVisiblePDFs: [ConvertedPDF] {
+        filteredItems.flatMap { item -> [ConvertedPDF] in
+            switch item {
+            case .single(let p): return [p]
+            case .series(let g): return g.issues
+            }
+        }
+    }
+
     // Download progress observation
     @ObservedObject private var downloader = CloudDownloadManager.shared
     @ObservedObject private var tracker = ReaderProgressTracker.shared
@@ -166,8 +175,13 @@ import SwiftUI
             .navigationBarHidden(true)
         }
         .fullScreenCover(item: $selectedPDF) { pdf in
-            UnifiedReaderView(pdf: pdf)
+            UnifiedReaderView(pdf: pdf, allBooks: allVisiblePDFs)
                 .environmentObject(conversionManager)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openMergedBook)) { notif in
+            if let nextBook = notif.object as? ConvertedPDF {
+                selectedPDF = nextBook
+            }
         }
         .task { recomputeFilter() }
         .onChange(of: conversionManager.convertedPDFs.count) { recomputeFilter() }

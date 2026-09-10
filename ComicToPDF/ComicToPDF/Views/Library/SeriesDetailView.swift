@@ -1155,7 +1155,12 @@ struct SeriesDetailView: View {
     var body: some View {
         let view = mainContent
             .fullScreenCover(item: $pdfToRead) { pdf in
-                UnifiedReaderView(pdf: pdf)
+                UnifiedReaderView(pdf: pdf, allBooks: sortedIssues)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openMergedBook)) { notif in
+                if let nextBook = notif.object as? ConvertedPDF {
+                    pdfToRead = nextBook
+                }
             }
             .safeAreaInset(edge: .bottom) {
                 bottomActionBar

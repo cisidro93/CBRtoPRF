@@ -37,6 +37,13 @@ class AppRouter: ObservableObject {
             activeFullScreen = screen
         }
     }
+
+    /// Updates the active reader destination in-place without triggering a dismissal/re-presentation flicker cycle.
+    func updateCurrentReaderBook(_ pdf: ConvertedPDF) {
+        if case .read(_, let mode) = activeFullScreen {
+            activeFullScreen = .read(pdf, initialReadingMode: mode)
+        }
+    }
     
     func dismissSheet() {
         Logger.shared.log("AppRouter: dismissSheet", category: "Navigation", type: .info)

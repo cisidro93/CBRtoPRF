@@ -181,7 +181,12 @@ struct ReadNowTabView: View {
             .navigationTitle("Read Now")
             .navigationBarTitleDisplayMode(.large)
             .fullScreenCover(item: $pdfToRead) { pdf in
-                UnifiedReaderView(pdf: pdf)
+                UnifiedReaderView(pdf: pdf, allBooks: conversionManager.convertedPDFs)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openMergedBook)) { notif in
+                if let nextBook = notif.object as? ConvertedPDF {
+                    pdfToRead = nextBook
+                }
             }
             .onAppear {
                 velocityVM.refresh(pdfs: conversionManager.convertedPDFs, tracker: tracker)
