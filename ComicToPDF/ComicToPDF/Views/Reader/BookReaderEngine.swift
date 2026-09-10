@@ -1291,7 +1291,7 @@ private func computeColumnCount(for size: CGSize) -> Int {
                                         activeFootnoteText = text
                                     }
                                 )
-                                .id("book_curl_\(prefs.pageTurnStyle.rawValue)_\(vm.currentChapterIndex)")
+                                .id(curlReaderId)
                             } else {
                                 // Scroll mode: EPUBWebView continuous vertical scroll
                                 EPUBWebView(
@@ -1316,7 +1316,7 @@ private func computeColumnCount(for size: CGSize) -> Int {
                                     onPrevChapter: handlePrevChapter
                                 )
                                 .ignoresSafeArea()
-                                .id("epub_chapter_\(vm.currentChapterIndex)")
+                                .id(epubChapterId)
                             }
                         }
                         .readingFilter(prefs.readingFilter)
@@ -1656,8 +1656,16 @@ private func computeColumnCount(for size: CGSize) -> Int {
         let chIdx = vm.currentChapterIndex
         let href = vm.chapterHtmlFiles[safe: chIdx]?.lastPathComponent ?? ""
         let rawTitle = vm.tocItems[safe: chIdx]?.label
-        let cleanTitle = rawTitle?.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-        return EBookMetadata.SpineItem(id: "ch_\(chIdx)", href: href, title: cleanTitle)
+        let cleanTitle = rawTitle?.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression) ?? ""
+        return EBookMetadata.SpineItem(id: "ch_\(chIdx)", href: href, label: cleanTitle, tocTitle: cleanTitle)
+    }
+
+    private var curlReaderId: String {
+        "book_curl_\(prefs.pageTurnStyle.rawValue)_\(vm.currentChapterIndex)"
+    }
+
+    private var epubChapterId: String {
+        "epub_chapter_\(vm.currentChapterIndex)"
     }
 
     private func handleNextChapter() {
