@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import PencilKit
+import PDFKit
 
 /// Custom PKCanvasView subclass that forwards finger touches (taps, pans, page turns, text selection)
 /// down to the underlying PDFView while allowing Apple Pencil to draw seamlessly.

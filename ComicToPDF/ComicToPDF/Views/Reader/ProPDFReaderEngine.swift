@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 @preconcurrency import PDFKit
 import PencilKit
 import AVFoundation
@@ -1793,17 +1794,21 @@ struct ProPDFReaderEngine: View {
         if let coordinator = (pdfViewReference?.delegate as? ProPDFViewRepresentable.Coordinator) {
             coordinator.canvasProvider.clearDrawing(for: currentPageIndex)
         }
-        let ctx = InksyncProApp.sharedModelContainer.mainContext
-        let targetID = pdf.id
-        let pIndex = currentPageIndex
-        let descriptor = FetchDescriptor<SDAnnotation>(predicate: #Predicate {
-            $0.pdfID == targetID && $0.pageIndex == pIndex && $0.kindRaw == "ink"
-        })
-        if let existing = try? ctx.fetch(descriptor).first {
-            ctx.delete(existing)
-            try? ctx.save()
+        let targetID: UUID = pdf.id
+        let targetPageIndex: Int = currentPageIndex
+        let targetKind: String = "ink"
+        let descriptor = FetchDescriptor<SDAnnotation>(
+            predicate: #Predicate<SDAnnotation> { annotation in
+                annotation.pdfID == targetID && annotation.pageIndex == targetPageIndex && annotation.kindRaw == targetKind
+            }
+        )
+        if let items = try? modelContext.fetch(descriptor) {
+            for item in items {
+                modelContext.delete(item)
+            }
+            try? modelContext.save()
         }
-        if let ann = AnnotationStore.shared.annotations(for: targetID).first(where: { $0.pageIndex == pIndex && $0.kind == .ink }) {
+        if let ann = AnnotationStore.shared.annotations(for: targetID).first(where: { $0.pageIndex == targetPageIndex && $0.kind == .ink }) {
             AnnotationStore.shared.delete(id: ann.id, pdfID: targetID)
         }
         showToastMessage("Page Markup Cleared")

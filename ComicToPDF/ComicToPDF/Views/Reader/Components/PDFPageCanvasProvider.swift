@@ -11,7 +11,7 @@ import SwiftData
 /// overlays into each `PDFPageView` scroll tile, guaranteeing zero coordinate drift on zoom,
 /// full 120Hz ProMotion touch responsiveness, and seamless finger gesture pass-through.
 @MainActor
-public final class PDFPageCanvasProvider: NSObject, PDFPageOverlayViewProvider, PKCanvasViewDelegate {
+public final class PDFPageCanvasProvider: NSObject, PKCanvasViewDelegate {
 
     public var pdfID: UUID?
     public var isMarkupActive: Bool = false {
@@ -39,9 +39,9 @@ public final class PDFPageCanvasProvider: NSObject, PDFPageOverlayViewProvider, 
             .store(in: &cancellables)
     }
 
-    // MARK: - PDFPageOverlayViewProvider Implementation
+    // MARK: - Overlay View Provider Methods (MainActor)
 
-    public func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
+    public func overlayView(for page: PDFPage) -> UIView? {
         let key = ObjectIdentifier(page)
         if let existing = pageCanvases[key] {
             return existing
@@ -69,7 +69,7 @@ public final class PDFPageCanvasProvider: NSObject, PDFPageOverlayViewProvider, 
         return canvas
     }
 
-    public func pdfView(_ view: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
+    public func willDisplay(overlayView: UIView, for page: PDFPage) {
         guard let canvas = overlayView as? PassthroughPKCanvasView else { return }
         let key = ObjectIdentifier(page)
         guard !loadedPages.contains(key) else { return }
@@ -78,7 +78,7 @@ public final class PDFPageCanvasProvider: NSObject, PDFPageOverlayViewProvider, 
         loadedPages.insert(key)
     }
 
-    public func pdfView(_ view: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
+    public func willEndDisplaying(overlayView: UIView, for page: PDFPage) {
         guard let canvas = overlayView as? PassthroughPKCanvasView else { return }
         let key = ObjectIdentifier(page)
 
@@ -240,6 +240,29 @@ public final class PDFPageCanvasProvider: NSObject, PDFPageOverlayViewProvider, 
             if let page = canvas.associatedPage {
                 saveDrawing(from: canvas, for: page)
             }
+        }
+    }
+}
+
+// MARK: - PDFPageOverlayViewProvider Conformance
+
+extension PDFPageCanvasProvider: PDFPageOverlayViewProvider {
+
+    public nonisolated func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
+        MainActor.assumeIsolated {
+            self.overlayView(for: page)
+        }
+    }
+
+    public nonisolated func pdfView(_ view: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
+        MainActor.assumeIsolated {
+            self.willDisplay(overlayView: overlayView, for: page)
+        }
+    }
+
+    public nonisolated func pdfView(_ view: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
+        MainActor.assumeIsolated {
+            self.willEndDisplaying(overlayView: overlayView, for: page)
         }
     }
 }
