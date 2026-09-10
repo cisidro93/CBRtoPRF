@@ -618,6 +618,7 @@ struct ProPDFReaderEngine: View {
                 pdfViewRef: $pdfViewReference,
                 isCroppedMode: isCroppedMode,
                 isExpandedView: isExpandedView,
+                isPencilMode: isPencilMode,
                 onPrevPage: {
                     advancePage(forward: false)
                 },
@@ -673,14 +674,22 @@ struct ProPDFReaderEngine: View {
             .ignoresSafeArea()
 
             if isPencilMode {
-                PageCanvasOverlay(
-                    pdfID: pdf.id,
-                    pageIndex: currentPageIndex,
-                    isMarkupEnabled: isPencilMode,
-                    pencilOnlyDrawing: settingsManager.conversionSettings.pencilOnlyDrawing
-                )
-                .allowsHitTesting(true)
-                .ignoresSafeArea()
+                VStack {
+                    Spacer()
+                    InksyncPenDockView(
+                        onClearPage: {
+                            clearCurrentPageMarkup()
+                        },
+                        onClose: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                                isPencilMode = false
+                            }
+                        }
+                    )
+                    .padding(.bottom, 36)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .ignoresSafeArea(.keyboard)
             }
         }
     }
@@ -1779,6 +1788,28 @@ struct ProPDFReaderEngine: View {
         HapticEngine.selection()
     }
 
+    /// Erases all ink drawings on the current page
+    private func clearCurrentPageMarkup() {
+        if let coordinator = (pdfViewReference?.delegate as? ProPDFViewRepresentable.Coordinator) {
+            coordinator.canvasProvider.clearDrawing(for: currentPageIndex)
+        }
+        let ctx = InksyncProApp.sharedModelContainer.mainContext
+        let targetID = pdf.id
+        let pIndex = currentPageIndex
+        let descriptor = FetchDescriptor<SDAnnotation>(predicate: #Predicate {
+            $0.pdfID == targetID && $0.pageIndex == pIndex && $0.kindRaw == "ink"
+        })
+        if let existing = try? ctx.fetch(descriptor).first {
+            ctx.delete(existing)
+            try? ctx.save()
+        }
+        if let ann = AnnotationStore.shared.annotations(for: targetID).first(where: { $0.pageIndex == pIndex && $0.kind == .ink }) {
+            AnnotationStore.shared.delete(id: ann.id, pdfID: targetID)
+        }
+        showToastMessage("Page Markup Cleared")
+        HapticEngine.medium()
+    }
+
     /// Unhighlights the current text selection or active snapshot
     private func unhighlightSelection(text: String) {
         guard let doc = pdfViewReference?.document ?? pdfDocument else { return }
@@ -2081,6 +2112,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
     @Binding var pdfViewRef: PDFView?
     var isCroppedMode: Bool
     var isExpandedView: Bool
+    var isPencilMode: Bool = false
     var onPrevPage: () -> Void
     var onNextPage: () -> Void
     var onTapCenter: () -> Void
@@ -2096,6 +2128,12 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
             coordinator?.handleNativeHighlightAction()
         }
         pdfView.delegate = context.coordinator
+        pdfView.pageOverlayViewProvider = context.coordinator.canvasProvider
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let pencilInteraction = UIPencilInteraction()
+            pencilInteraction.delegate = context.coordinator
+            pdfView.addInteraction(pencilInteraction)
+        }
         // Horizontal paging feels most natural for a reader app on iOS
         pdfView.displayDirection = .horizontal
         pdfView.pageShadowsEnabled = true
@@ -2200,6 +2238,13 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
             uiView.autoScales = true
         }
 
+        if context.coordinator.canvasProvider.isMarkupActive != isPencilMode {
+            context.coordinator.canvasProvider.isMarkupActive = isPencilMode
+        }
+        if context.coordinator.canvasProvider.pdfID != pdf.id {
+            context.coordinator.canvasProvider.pdfID = pdf.id
+        }
+
         let prefs = EBookPreferences.shared
         let isLandscape = uiView.bounds.width > uiView.bounds.height
         let isDual = prefs.pdfDualPage || (prefs.autoLandscapeDualPage && isLandscape)
@@ -2302,8 +2347,9 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         NotificationCenter.default.removeObserver(coordinator, name: .PDFViewScaleChanged, object: uiView)
     }
 
-    class Coordinator: NSObject, PDFViewDelegate, UIGestureRecognizerDelegate {
+    class Coordinator: NSObject, PDFViewDelegate, UIGestureRecognizerDelegate, UIPencilInteractionDelegate {
         var parent: ProPDFViewRepresentable
+        let canvasProvider: PDFPageCanvasProvider
         var lastCropMode: Bool = false
         var lastTextMargin: CGFloat = -1
         var lastPageIndex: Int = -1
@@ -2324,10 +2370,16 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
 
         init(_ parent: ProPDFViewRepresentable) {
             self.parent = parent
+            self.canvasProvider = PDFPageCanvasProvider(pdfID: parent.pdf.id, isMarkupActive: parent.isPencilMode)
         }
 
         deinit {
             NotificationCenter.default.removeObserver(self)
+        }
+
+        @MainActor func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
+            InksyncInkingState.shared.toggleEraser()
+            HapticEngine.selection()
         }
 
         @MainActor func handleNativeHighlightAction() {

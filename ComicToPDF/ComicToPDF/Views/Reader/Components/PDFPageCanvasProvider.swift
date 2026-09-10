@@ -1,0 +1,245 @@
+import UIKit
+import PDFKit
+import PencilKit
+import Combine
+import SwiftData
+
+// MARK: - PDFPageCanvasProvider
+
+/// High-performance, zero-drift canvas provider for PDFKit utilizing Apple's native
+/// `PDFPageOverlayViewProvider` (iOS 16+). Directly anchors scoped `PassthroughPKCanvasView`
+/// overlays into each `PDFPageView` scroll tile, guaranteeing zero coordinate drift on zoom,
+/// full 120Hz ProMotion touch responsiveness, and seamless finger gesture pass-through.
+@MainActor
+public final class PDFPageCanvasProvider: NSObject, PDFPageOverlayViewProvider, PKCanvasViewDelegate {
+
+    public var pdfID: UUID?
+    public var isMarkupActive: Bool = false {
+        didSet {
+            updateCanvasInteractivity()
+        }
+    }
+
+    private var pageCanvases: [ObjectIdentifier: PassthroughPKCanvasView] = [:]
+    private var loadedPages: Set<ObjectIdentifier> = []
+    private var debounceSaveTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+    private var cancellables = Set<AnyCancellable>()
+
+    public init(pdfID: UUID? = nil, isMarkupActive: Bool = false) {
+        self.pdfID = pdfID
+        self.isMarkupActive = isMarkupActive
+        super.init()
+
+        // Synchronize all visible page canvases when the user changes inking tools or colors
+        InksyncInkingState.shared.$activePreset
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateAllCanvasTools()
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - PDFPageOverlayViewProvider Implementation
+
+    public func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
+        let key = ObjectIdentifier(page)
+        if let existing = pageCanvases[key] {
+            return existing
+        }
+
+        guard let doc = page.document else { return nil }
+        let pageIdx = doc.index(for: page)
+        guard pageIdx >= 0 else { return nil }
+
+        let canvas = PassthroughPKCanvasView()
+        canvas.pageIndex = pageIdx
+        canvas.associatedPage = page
+        canvas.backgroundColor = .clear
+        canvas.isOpaque = false
+        canvas.bounces = false
+        canvas.isScrollEnabled = false
+        canvas.showsVerticalScrollIndicator = false
+        canvas.showsHorizontalScrollIndicator = false
+        canvas.delegate = self
+
+        configureCanvasPolicy(canvas)
+        canvas.tool = InksyncInkingState.shared.makePKTool()
+
+        pageCanvases[key] = canvas
+        return canvas
+    }
+
+    public func pdfView(_ view: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
+        guard let canvas = overlayView as? PassthroughPKCanvasView else { return }
+        let key = ObjectIdentifier(page)
+        guard !loadedPages.contains(key) else { return }
+
+        loadDrawing(into: canvas, for: page)
+        loadedPages.insert(key)
+    }
+
+    public func pdfView(_ view: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
+        guard let canvas = overlayView as? PassthroughPKCanvasView else { return }
+        let key = ObjectIdentifier(page)
+
+        // Cancel debounce and force an immediate disk write
+        if let pending = debounceSaveTasks[key] {
+            pending.cancel()
+            debounceSaveTasks.removeValue(forKey: key)
+            saveDrawing(from: canvas, for: page)
+        }
+    }
+
+    // MARK: - PKCanvasViewDelegate
+
+    public func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+        guard let canvas = canvasView as? PassthroughPKCanvasView,
+              let page = canvas.associatedPage else { return }
+
+        let key = ObjectIdentifier(page)
+        debounceSaveTasks[key]?.cancel()
+
+        debounceSaveTasks[key] = Task { [weak self, weak canvas, weak page] in
+            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce
+            guard !Task.isCancelled, let self = self, let canvas = canvas, let page = page else { return }
+            self.saveDrawing(from: canvas, for: page)
+        }
+    }
+
+    // MARK: - Canvas Interactivity & Tool Updates
+
+    public func updateCanvasInteractivity() {
+        for canvas in pageCanvases.values {
+            configureCanvasPolicy(canvas)
+        }
+    }
+
+    public func updateAllCanvasTools() {
+        let currentTool = InksyncInkingState.shared.makePKTool()
+        for canvas in pageCanvases.values {
+            canvas.tool = currentTool
+        }
+    }
+
+    private func configureCanvasPolicy(_ canvas: PassthroughPKCanvasView) {
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad
+        let prefs = EBookPreferences.shared
+        let pencilOnly = isPad && (AppSettingsManager.shared.conversionSettings.pencilOnlyDrawing || prefs.applePencilAutoDraw)
+
+        canvas.isMarkupActive = isMarkupActive
+        canvas.allowFingerDrawing = isMarkupActive && !pencilOnly
+        canvas.drawingPolicy = pencilOnly ? .pencilOnly : .anyInput
+        canvas.isUserInteractionEnabled = isMarkupActive
+        canvas.drawingGestureRecognizer.cancelsTouchesInView = false
+        if pencilOnly {
+            canvas.panGestureRecognizer.isEnabled = false
+        }
+    }
+
+    // MARK: - Persistence & OCR Synchronization
+
+    private func loadDrawing(into canvas: PassthroughPKCanvasView, for page: PDFPage) {
+        guard let pdfID = pdfID else { return }
+        let targetID = pdfID
+        let pageIdx = canvas.pageIndex
+        let ctx = InksyncProApp.sharedModelContainer.mainContext
+        let descriptor = FetchDescriptor<SDAnnotation>(predicate: #Predicate {
+            $0.pdfID == targetID && $0.pageIndex == pageIdx && $0.kindRaw == "ink"
+        })
+
+        if let existing = try? ctx.fetch(descriptor).first,
+           let data = existing.drawingData,
+           let drawing = try? PKDrawing(data: data) {
+            canvas.drawing = drawing
+        } else {
+            // Check in-memory store fallback
+            if let storeAnn = AnnotationStore.shared.annotations(for: targetID).first(where: {
+                $0.pageIndex == pageIdx && $0.kind == .ink
+            }), let data = storeAnn.drawingData, let drawing = try? PKDrawing(data: data) {
+                canvas.drawing = drawing
+            } else {
+                canvas.drawing = PKDrawing()
+            }
+        }
+    }
+
+    private func saveDrawing(from canvas: PassthroughPKCanvasView, for page: PDFPage) {
+        guard let pdfID = pdfID else { return }
+        let drawing = canvas.drawing
+        let pageIdx = canvas.pageIndex
+        let drawingData = drawing.dataRepresentation()
+        let ctx = InksyncProApp.sharedModelContainer.mainContext
+
+        let descriptor = FetchDescriptor<SDAnnotation>(predicate: #Predicate {
+            $0.pdfID == pdfID && $0.pageIndex == pageIdx && $0.kindRaw == "ink"
+        })
+
+        let existing = try? ctx.fetch(descriptor).first
+
+        // If drawing is empty and nothing was saved, do not pollute database
+        if drawing.bounds.isEmpty && existing == nil {
+            return
+        }
+
+        if let annotation = existing {
+            annotation.drawingData = drawingData
+            annotation.modifiedAt = Date()
+            try? ctx.save()
+
+            var storeDto = annotation.toDTO()
+            storeDto.drawingData = drawingData
+            AnnotationStore.shared.update(storeDto)
+
+            runOCR(for: annotation, drawing: drawing)
+        } else {
+            var dto = Annotation(
+                id: UUID(),
+                pdfID: pdfID,
+                pageIndex: pageIdx,
+                chapterTitle: nil,
+                kind: .ink,
+                createdAt: Date(),
+                modifiedAt: Date()
+            )
+            dto.drawingData = drawingData
+            let newInk = SDAnnotation(from: dto)
+            ctx.insert(newInk)
+            try? ctx.save()
+            AnnotationStore.shared.add(dto)
+
+            runOCR(for: newInk, drawing: drawing)
+        }
+    }
+
+    private func runOCR(for annotation: SDAnnotation, drawing: PKDrawing) {
+        guard !drawing.bounds.isEmpty else {
+            SpotlightIndexer.shared.indexAnnotation(annotation)
+            return
+        }
+
+        Task { @MainActor in
+            if let ocrText = await HandwritingOCRManager.shared.recognizeHandwriting(in: drawing) {
+                if annotation.drawingOCRText != ocrText {
+                    annotation.drawingOCRText = ocrText
+                    annotation.modifiedAt = Date()
+                    try? InksyncProApp.sharedModelContainer.mainContext.save()
+                    Logger.shared.log("Page ink OCR updated for page \(annotation.pageIndex): \(ocrText.prefix(40))...", category: "OCR", type: .success)
+                    SpotlightIndexer.shared.indexAnnotation(annotation)
+                }
+            } else {
+                SpotlightIndexer.shared.indexAnnotation(annotation)
+            }
+        }
+    }
+
+    // MARK: - Actions
+
+    public func clearDrawing(for pageIndex: Int) {
+        for canvas in pageCanvases.values where canvas.pageIndex == pageIndex {
+            canvas.drawing = PKDrawing()
+            if let page = canvas.associatedPage {
+                saveDrawing(from: canvas, for: page)
+            }
+        }
+    }
+}

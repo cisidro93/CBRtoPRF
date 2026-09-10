@@ -130,7 +130,15 @@ final class PDFAnnotationSyncBridge {
                 if let drawingData = annotation.drawingData,
                    let drawing = try? PKDrawing(data: drawingData) {
                     let nativeInk = PDFAnnotation(bounds: pageBounds, forType: .ink, withProperties: nil)
-                    nativeInk.color = UIColor.systemBlue
+                    nativeInk.userName = annotation.id.uuidString
+                    nativeInk.contents = annotation.drawingOCRText ?? "Handwritten Note"
+                    if let hex = annotation.colorHex, let c = UIColor(hexString: hex) {
+                        nativeInk.color = c
+                    } else if let firstStroke = drawing.strokes.first {
+                        nativeInk.color = firstStroke.ink.color
+                    } else {
+                        nativeInk.color = UIColor.systemBlue
+                    }
                     for stroke in drawing.strokes {
                         let bezier = UIBezierPath()
                         var first = true
@@ -311,18 +319,25 @@ final class PDFAnnotationSyncBridge {
                 page.addAnnotation(nativeText)
                 
             case .ink:
-                // Convert PencilKit drawing data to native vector /Ink paths
+                // Convert PencilKit drawing data to native vector /Ink paths preserving stroke color and metadata
                 if let drawingData = annotation.drawingData,
                    let drawing = try? PKDrawing(data: drawingData) {
                     let nativeInk = PDFAnnotation(bounds: pageBounds, forType: .ink, withProperties: nil)
-                    nativeInk.color = UIColor.systemBlue
+                    nativeInk.userName = annotation.id.uuidString
+                    nativeInk.contents = annotation.drawingOCRText ?? "Handwritten Note"
+                    if let hex = annotation.colorHex, let c = UIColor(hexString: hex) {
+                        nativeInk.color = c
+                    } else if let firstStroke = drawing.strokes.first {
+                        nativeInk.color = firstStroke.ink.color
+                    } else {
+                        nativeInk.color = UIColor.systemBlue
+                    }
                     
                     for stroke in drawing.strokes {
                         let bezier = UIBezierPath()
                         var first = true
                         for point in stroke.path {
                             let pt = point.location
-                            // Invert Y coordinate for PDF coordinate space if necessary
                             let pdfPt = CGPoint(x: pt.x, y: pageBounds.height - pt.y)
                             if first {
                                 bezier.move(to: pdfPt)
@@ -334,6 +349,12 @@ final class PDFAnnotationSyncBridge {
                         nativeInk.add(bezier)
                     }
                     page.addAnnotation(nativeInk)
+
+                    // Lossless dual-layer metadata embedding in document attributes
+                    if var attrs = document.documentAttributes {
+                        attrs["Inksync_Drawing_P\(annotation.pageIndex)"] = drawingData.base64EncodedString()
+                        document.documentAttributes = attrs
+                    }
                 }
                 
             case .bookmark:
@@ -392,7 +413,7 @@ final class PDFAnnotationSyncBridge {
                 let colorHex = nativeAnn.color.toHexString()
                 let contentText = nativeAnn.contents ?? ""
                 
-                let newAnnotation = Annotation(
+                var newAnnotation = Annotation(
                     pdfID: pdfID,
                     pageIndex: pageIndex,
                     chapterTitle: "Page \(pageIndex + 1)",
@@ -404,6 +425,13 @@ final class PDFAnnotationSyncBridge {
                     noteText: mappedKind == .note ? contentText : nil,
                     bounds: boundsNorm
                 )
+                
+                if mappedKind == .ink {
+                    if let rawBase64 = document.documentAttributes?["Inksync_Drawing_P\(pageIndex)"] as? String,
+                       let data = Data(base64Encoded: rawBase64) {
+                        newAnnotation.drawingData = data
+                    }
+                }
                 
                 if !existingIDs.contains(newAnnotation.id) {
                     AnnotationStore.shared.add(newAnnotation)

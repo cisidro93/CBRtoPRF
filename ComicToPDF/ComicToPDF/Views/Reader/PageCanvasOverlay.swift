@@ -7,6 +7,8 @@ import PencilKit
 final class PassthroughPKCanvasView: PKCanvasView {
     var allowFingerDrawing: Bool = false
     var isMarkupActive: Bool = false
+    var pageIndex: Int = 0
+    weak var associatedPage: PDFPage? = nil
     
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard isMarkupActive else { return nil }
