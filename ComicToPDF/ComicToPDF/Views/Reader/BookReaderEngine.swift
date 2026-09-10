@@ -1693,9 +1693,10 @@ private func computeColumnCount(for size: CGSize) -> Int {
 
     @ViewBuilder
     private var curlReaderView: some View {
+        let currentChapterURL = vm.chapterHtmlFiles[safe: vm.currentChapterIndex]
         EBookPageCurlReader(
             spineItem: currentCurlSpineItem,
-            unzipDir: vm.unzipDir,
+            unzipDir: currentChapterURL?.deletingLastPathComponent(),
             prefs: prefs,
             colorScheme: colorScheme,
             currentPage: $chapterPage,
