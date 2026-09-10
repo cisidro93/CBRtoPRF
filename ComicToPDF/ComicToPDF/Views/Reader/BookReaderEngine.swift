@@ -1308,7 +1308,8 @@ private func computeColumnCount(for size: CGSize) -> Int {
                                             selectedText: selectedText
                                         )
                                         AnnotationStore.shared.add(highlight)
-                                        StudyNotesStore.shared.appendHighlight(selectedText, chapter: spineLabel ?? "Chapter \(vm.currentChapterIndex + 1)")
+                                        let chapterStr = spineLabel ?? "Chapter \(vm.currentChapterIndex + 1)"
+                                        StudyNotesStore.shared.appendHighlight(selectedText, chapter: chapterStr)
 
                                         let sdAnnotation = SDAnnotation(from: highlight)
                                         modelContext.insert(sdAnnotation)
@@ -1895,7 +1896,7 @@ private func computeColumnCount(for size: CGSize) -> Int {
     /// Delegates to ReadingContinuationResolver to auto-transition to the next book
     /// in the user's custom collection (story arc), virtual omnibus, or publisher series.
     private func attemptBookSeriesContinuation() {
-        saveReadingProgress()
+        saveProgress()
         _ = ReadingContinuationResolver.shared.continueReading(after: pdf, in: allBooks)
     }
 }

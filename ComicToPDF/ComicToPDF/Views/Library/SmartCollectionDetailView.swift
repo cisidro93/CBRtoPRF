@@ -27,6 +27,7 @@ import SwiftUI
             switch item {
             case .single(let p): return [p]
             case .series(let g): return g.issues
+            case .driveFolder: return []
             }
         }
     }

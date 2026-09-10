@@ -1,6 +1,5 @@
 import Foundation
 import SwiftUI
-import OSLog
 
 /// Unified service that resolves and triggers the next book or comic in a series,
 /// custom user collection (story arc / reading order), or virtual omnibus.
@@ -9,7 +8,6 @@ import OSLog
 final class ReadingContinuationResolver {
     static let shared = ReadingContinuationResolver()
 
-    private let logger = Logger(subsystem: "com.antigravity.InksyncPro", category: "Continuation")
     private var isContinuationInProgress: Bool = false
 
     private init() {}
@@ -45,7 +43,7 @@ final class ReadingContinuationResolver {
             if let currentIdx = explicitList.firstIndex(where: { $0.id == currentBook.id }) {
                 let nextIdx = currentIdx + 1
                 if explicitList.indices.contains(nextIdx) {
-                    logger.info("Continuation resolved via Tier 1 (Explicit Subset List): '\(explicitList[nextIdx].name)'")
+                    Logger.shared.log("Continuation resolved via Tier 1 (Explicit Subset List): '\(explicitList[nextIdx].name)'", category: "Continuation", type: .info)
                     return explicitList[nextIdx]
                 }
             }
@@ -80,11 +78,11 @@ final class ReadingContinuationResolver {
                 if let currentIdx = sortedItems.firstIndex(where: { $0.id == currentBook.id }) {
                     let nextIdx = currentIdx + 1
                     if sortedItems.indices.contains(nextIdx) {
-                        logger.info("Continuation resolved via Tier 2 (Custom Collection '\(collection.name)'): '\(sortedItems[nextIdx].name)'")
+                        Logger.shared.log("Continuation resolved via Tier 2 (Custom Collection '\(collection.name)'): '\(sortedItems[nextIdx].name)'", category: "Continuation", type: .info)
                         return sortedItems[nextIdx]
                     } else {
                         // Reached the end of this custom collection
-                        logger.info("Reached end of Custom Collection '\(collection.name)'. No next candidate.")
+                        Logger.shared.log("Reached end of Custom Collection '\(collection.name)'. No next candidate.", category: "Continuation", type: .info)
                         return nil
                     }
                 }
@@ -102,12 +100,12 @@ final class ReadingContinuationResolver {
                 if omnibus.fileIDs.indices.contains(nextFileIdx) {
                     let nextID = omnibus.fileIDs[nextFileIdx]
                     if let nextFile = catalog.first(where: { $0.id == nextID }) {
-                        logger.info("Continuation resolved via Tier 3 (Virtual Omnibus '\(omnibus.name)'): '\(nextFile.name)'")
+                        Logger.shared.log("Continuation resolved via Tier 3 (Virtual Omnibus '\(omnibus.name)'): '\(nextFile.name)'", category: "Continuation", type: .info)
                         return nextFile
                     }
                 } else {
                     // Reached the end of this omnibus story arc
-                    logger.info("Reached end of Virtual Omnibus '\(omnibus.name)'. No next candidate.")
+                    Logger.shared.log("Reached end of Virtual Omnibus '\(omnibus.name)'. No next candidate.", category: "Continuation", type: .info)
                     return nil
                 }
             }
@@ -124,10 +122,10 @@ final class ReadingContinuationResolver {
             if let currentIdx = sortedSiblings.firstIndex(where: { $0.id == currentBook.id }) {
                 let nextIdx = currentIdx + 1
                 if sortedSiblings.indices.contains(nextIdx) {
-                    logger.info("Continuation resolved via Tier 4 (Series '\(rawSeries)'): '\(sortedSiblings[nextIdx].name)'")
+                    Logger.shared.log("Continuation resolved via Tier 4 (Series '\(rawSeries)'): '\(sortedSiblings[nextIdx].name)'", category: "Continuation", type: .info)
                     return sortedSiblings[nextIdx]
                 } else {
-                    logger.info("Reached end of Series '\(rawSeries)'. No next candidate.")
+                    Logger.shared.log("Reached end of Series '\(rawSeries)'. No next candidate.", category: "Continuation", type: .info)
                     return nil
                 }
             }
@@ -138,13 +136,13 @@ final class ReadingContinuationResolver {
             if let currentIdx = explicitList.firstIndex(where: { $0.id == currentBook.id }) {
                 let nextIdx = currentIdx + 1
                 if explicitList.indices.contains(nextIdx) {
-                    logger.info("Continuation resolved via Tier 5 (Explicit List Fallback): '\(explicitList[nextIdx].name)'")
+                    Logger.shared.log("Continuation resolved via Tier 5 (Explicit List Fallback): '\(explicitList[nextIdx].name)'", category: "Continuation", type: .info)
                     return explicitList[nextIdx]
                 }
             }
         }
 
-        logger.info("No continuation candidate found for '\(currentBook.name)'")
+        Logger.shared.log("No continuation candidate found for '\(currentBook.name)'", category: "Continuation", type: .info)
         return nil
     }
 
@@ -156,18 +154,18 @@ final class ReadingContinuationResolver {
     @discardableResult
     func continueReading(after currentBook: ConvertedPDF, in explicitList: [ConvertedPDF] = []) -> Bool {
         guard !isContinuationInProgress else {
-            logger.debug("Continuation already in progress, suppressing duplicate call.")
+            Logger.shared.log("Continuation already in progress, suppressing duplicate call.", category: "Continuation", type: .info)
             return false
         }
 
         guard let next = nextBook(after: currentBook, in: explicitList) else {
-            logger.info("No next book available to continue from '\(currentBook.name)'.")
+            Logger.shared.log("No next book available to continue from '\(currentBook.name)'.", category: "Continuation", type: .info)
             return false
         }
 
         isContinuationInProgress = true
         HapticEngine.success()
-        logger.info("Triggering auto-continuation to '\(next.name)' (ID: \(next.id))")
+        Logger.shared.log("Triggering auto-continuation to '\(next.name)' (ID: \(next.id))", category: "Continuation", type: .info)
 
         NotificationCenter.default.post(name: .openMergedBook, object: next)
 

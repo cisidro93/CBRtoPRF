@@ -2103,7 +2103,7 @@ struct ComicReaderEngine: View {
     /// Delegates to ReadingContinuationResolver to auto-transition to the next issue
     /// in the user's custom collection (story arc), virtual omnibus, or publisher series.
     private func attemptComicSeriesContinuation() {
-        saveReadingProgress()
+        saveCurrentProgress()
         _ = ReadingContinuationResolver.shared.continueReading(after: pdf, in: allBooks)
     }
 
@@ -2353,17 +2353,18 @@ struct ComicReaderEngine: View {
 
     // MARK: - Private Helpers
 
-    private func saveProgressAndDismiss() {
+    private func saveCurrentProgress() {
+        let total = max(cache.pageCount, 1)
         var progress = ReaderProgressTracker.shared.progress(for: pdf.id) ?? ReadingProgress(
             pdfID: pdf.id, lastOpenedAt: Date(), currentPageIndex: currentIndex,
             currentChapterIndex: nil, currentChapterOffset: nil,
             totalPagesRead: 1,
-            completionFraction: Double(currentIndex + 1) / Double(cache.pageCount),
+            completionFraction: Double(currentIndex + 1) / Double(total),
             readingSessionDates: [Date()], estimatedMinutesRemaining: nil
         )
         progress.currentPageIndex = currentIndex
         progress.lastOpenedAt = Date()
-        progress.completionFraction = Double(currentIndex + 1) / Double(cache.pageCount)
+        progress.completionFraction = Double(currentIndex + 1) / Double(total)
         progress.prefersMangaMode = isMangaComic || (readingMode == .mangaRTL)
         progress.colorFilter = activeFilterPreset.rawValue
         progress.lastCanonicalLeadIndex = currentIndex
@@ -2372,6 +2373,10 @@ struct ComicReaderEngine: View {
             progress.readingSessionDates.append(Date())
         }
         ReaderProgressTracker.shared.update(progress)
+    }
+
+    private func saveProgressAndDismiss() {
+        saveCurrentProgress()
         onDismiss()
     }
 
