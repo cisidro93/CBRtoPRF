@@ -36,6 +36,7 @@ The core user experience philosophy: **the app should feel like a beautifully cr
 InkSync Pro's reading engines are systematically benchmarked against and engineered to surpass the four titans of digital reading: **Amazon Kindle, Panels, KyBook 3, and Onyx Boox NeoReader**.
 
 ### 3.1 Pro Vector PDF Reader (`ProPDFReaderEngine`)
+
 - **Native PDFKit Integration:** Continuous 120Hz ProMotion touch tracking, asynchronous tile rasterization, and sub-pixel glyph rendering.
 - **Boox NeoReader Smart Crop & Article Mode:**
   - *Smart Auto Crop:* Analyzes whitespace margins using `CGPDFPage` content bounds and expands text to edge.
@@ -45,6 +46,7 @@ InkSync Pro's reading engines are systematically benchmarked against and enginee
 - **Document-Wide Narration HUD:** Continuous text-to-speech engine powered by `AVSpeechSynthesizer` with word boundary tracking and playback rate controls.
 
 ### 3.2 Reflowable EPUB Engine (`EBookPageCurlReader` & `EBookReaderView`)
+
 - **Full-Bleed 3D Page Curl Physics:** Powered by `UIPageViewController` with custom spine positioning (`.mid` for iPad landscape dual-page, `.min` for iPhone portrait single-page).
 - **Invariant Viewport Geometry (Zero Layout Shift):** Progress bar and Kindle footer decouple from reading canvas layout flow into floating overlays. Reader canvas dimensions are 100% static, completely preventing WebKit CSS multi-column repagination and blank voids when toggling HUD chrome.
 - **Seamless Cross-Chapter Boundary Progression & Regression:** Readers can curl or tap forward past chapter boundaries into the next chapter, or regress backward into the previous chapter's final spread, without opening the navigation UI.
@@ -61,6 +63,7 @@ InkSync Pro's reading engines are systematically benchmarked against and enginee
   - *Reading Pace Tracking:* Calculates real-time words-per-minute (WPM) and hours/minutes remaining in current chapter.
 
 ### 3.3 Comic & Manga 3D Curl Reader (`ComicReaderEngine`)
+
 - **Zero-Flash Frame-0 Pre-caching:** Pre-loads adjacent page textures into memory to eliminate black/white flash during fast page curls.
 - **Multi-Spread Splitting:** Intelligently detects and separates 2-up double-page spreads for both Left-to-Right (LTR) comics and Right-to-Left (RTL) manga.
 
@@ -69,20 +72,24 @@ InkSync Pro's reading engines are systematically benchmarked against and enginee
 ## 4. 0ms Instant Highlighting & Bidirectional Annotation Synchronization
 
 ### 4.1 Zero-Latency PDF Highlighting & Exact Coordinate Geometry
+
 - **ISO-Standard Quadrilateral Points (`PDFHighlightGeometryHelper`):** Highlights are constructed using single consolidated `PDFAnnotation(bounds: unionBox, forType: .highlight)` where quad-points are calculated **strictly relative to `unionBox.origin`** (`relMinX = line.minX - unionBox.minX`, etc.). This eliminates the severe double-origin coordinate shift in Apple PDFKit across single-line, multi-line, and wrapped text passages.
 - **Pre-Multiplied Alpha Blending:** Colors utilize `color.directHighlightUIColor` (alpha ~0.55–0.65), preventing dark double-composited overlapping.
 - **Synchronous Tiled Layer Invalidation:** Directly triggers `pdfView.setNeedsDisplay()` and layer invalidation in `forcePageRedraw()`, achieving **0ms visual latency**.
 - **SwiftData Persistence:** Immediate insertion of `SDAnnotation` into `modelContext` with safe saving.
 
 ### 4.2 In-Book Highlights Navigator (`PDFOutlineDrawer`)
+
 - **Dedicated Highlights Tab:** Built-in `case annotations = "Highlights"` tab in `PDFOutlineDrawer` bound to `AnnotationStore.shared`.
 - **Rich Card Metadata:** Displays color pill badges, page numbers, timestamps, exact quoted passages, and personal marginalia notes.
 - **1-Tap Page Navigation:** Tapping any highlight immediately navigates the viewport to the exact page and pulses the highlight.
 
 ### 4.3 EPUB Snapshot Invalidation
+
 - When text is highlighted in EPUB, `takePageSnapshot` immediately updates the active spread `EBookPageContentViewController.updateSnapshot(img)` without waiting for page-turns.
 
 ### 4.4 External Study Notebook Synchronization
+
 - `StudyNotebookView` resolves book IDs via `SDNotebook.linkedBookID` and auto-syncs highlights from `AnnotationStore.shared`, ensuring highlights created inside books are instantly accessible when outside the reader.
 
 ---
@@ -102,6 +109,7 @@ Benchmarked against **GoodNotes 6, Notability, Apple Notes, and Obsidian/Craft**
 ```
 
 ### 5.1 Cornell 3-Zone Note Paper Engine (`StudyNotebookView`, `CornellNotesZoneView`)
+
 - **Structured 3-Zone Canvas:** Divided into Left Cue Column, Main Notes Canvas, and Bottom Synthesis Summary.
 - **Persistent State Defense:**
   - `cornellCuesText` and `cornellSummaryText` are loaded directly from SwiftData `SDAnnotation` (`cornellCueText`, `cornellSummaryText`).
@@ -109,6 +117,7 @@ Benchmarked against **GoodNotes 6, Notability, Apple Notes, and Obsidian/Craft**
 - **Frosted-Glass Recitation Curtain:** Allows students to mask the main notes zone with an interactive frosted-glass curtain, enabling active self-testing directly from cue prompts.
 
 ### 5.2 Global Active Study Suite (`GlobalNotebookView`, `StudyNotebookContainerView`)
+
 - Integrated as a 4th primary tab: `case studyDeck = "Active Study"` (`play.rectangle.on.rectangle.fill`).
 - Unifies 4 specialized study spaces:
   1. **Notebooks Hub:** Unified creative sketchbooks, paper templates, and drawing notebooks.
@@ -117,23 +126,28 @@ Benchmarked against **GoodNotes 6, Notability, Apple Notes, and Obsidian/Craft**
   4. **Vocabulary Hub:** Contextual definitions and word bank accrued during reading.
 
 ### 5.3 SwiftData Live Ingestion Bridge (`StudyNotebookStore`)
+
 - Automatically ingests reading highlights from SwiftData `SDAnnotation` into active `StudyCard` flashcards.
 - Applies Mortimer Adler analytical reading levels and Bear-style hierarchical tags (`#philosophy/epistemology`).
 - Broadcasts `.annotationsDidChange` notifications across modules on rating or editing.
 
 ### 5.4 Spaced Repetition (SuperMemo SM-2) Engine (`StudyCardScheduler`, `StudyDeckReviewView`)
+
 - Implements the standard SM-2 algorithm: ease factor ($EF$), interval progression ($I_n$), and repetition counter.
 - **3D Flip Card Active Recall HUD:** Tap to flip card between cue/question and passage/answer with rating buttons (Again, Hard, Good, Easy).
 
 ### 5.5 Deep Reader Anchoring
+
 - Every study card and note citation includes deep navigation hooks (`.fullScreenCover`) to jump directly into `UnifiedReaderView` at the exact book page.
 
 ### 5.6 120Hz PencilKit Inking & Vector Dock
+
 - Low-latency vector inking powered by Apple PencilKit with custom floating glass dock.
 - Precision stroke widths (Fine, Medium, Bold, Extra), Vector vs. Pixel erasers, and shape-smoothing recognition (hold 300ms to snap lines, polygons, and ellipses).
 - Full Apple Pencil Pro support (squeeze to switch tools, barrel roll for brush angle control).
 
 ### 5.7 Relational Markdown & Obsidian Vault Exporter
+
 - Exports notebooks and study decks to portable Markdown with YAML frontmatter.
 - Pre-renders PencilKit drawings into transparent vector PNGs and preserves `[[WikiLinks]]` and tags.
 
@@ -149,22 +163,25 @@ InkSync Pro replaces generic highlighter colors with Mortimer Adler's analytical
 | 🔵 **Blue** | `#3B82F6` | **Empirical Evidence (Level 2 - Inspectional)** | Supporting data, quantitative statistics, citations, and experiments. |
 | 🟢 **Green** | `#10B981` | **Technical Definition (Level 1 - Elementary)** | Specialized terminology, core vocabulary, and ontological definitions. |
 | 🟣 **Purple** | `#8B5CF6` | **Methodology & Framework** | Analytical frameworks, logic models, algorithms, and proofs. |
-| 🔴 **Red** | `#EF4444` | **Counter-Argument & Critique (Level 4 - Syntopical)**| Logical contradictions, caveats, counter-theses, and author rebuttals. |
+| 🔴 **Red** | `#EF4444` | **Counter-Argument & Critique (Level 4 - Syntopical)** | Logical contradictions, caveats, counter-theses, and author rebuttals. |
 
 ---
 
 ## 7. Continuous Build Intelligence & Automated "What's New" System
 
 ### 7.1 Runtime Version & Build Fingerprinting (`AppBuildInfo`)
+
 - **Single Source of Truth:** Extracts `CFBundleShortVersionString`, `CFBundleVersion`, and `GitCommitSHA` directly from `Bundle.main.infoDictionary`.
 - **First-Launch Detection:** Computes a unique build fingerprint (`version.buildNumber.commitSHA`) and compares against `UserDefaults`. Automatically presents `WhatsNewInBuildSheet` on initial launch after an update.
 
 ### 7.2 Dynamic What's New Architecture (`WhatsNewProvider`, `WhatsNewInBuildSheet`)
+
 - Decoupled `WhatsNewProvider` loads release notes from bundled `WhatsNew.json` with fallback to `WhatsNewCatalog`.
 - **Version History Browsing:** Users can view features for the currently installed build or browse historical milestone releases.
 - **Kavsoft Glassmorphic UI:** Category pill badges (`STUDY`, `READER`, `PDFKIT`, `SYNC`), custom SF Symbol backgrounds, and live build stamping badge.
 
 ### 7.3 Automated CI/CD Stamping Pipeline (`Scripts/stamp_whats_new.py`, `.github/workflows/build.yml`)
+
 - On every GitHub Actions CI push, `stamp_whats_new.py`:
   1. Evaluates `BUILD_NUMBER` and `SHORT_SHA`.
   2. Extracts release highlights from `WHATS_NEW.md` or parses recent git commit history.
@@ -201,6 +218,7 @@ InkSync Pro replaces generic highlighter colors with Mortimer Adler's analytical
 | **Kobo Elipsa / Boox Note Air** | 1404 × 1872 px | 227 PPI | Open Android / Kobo |
 
 ### 10.2 Kindle EPUB Compliance Standard
+
 - Viewport declared via `<meta name="viewport" content="width=1980, height=2640"/>` (**NO `initial-scale=1.0`**).
 - No forbidden CSS (`position: fixed`, `overflow: hidden`, `@page { size }`, `@media amzn-*`).
 - Sequential Floyd-Steinberg 16-level error diffusion dithering for smooth grayscale transitions without banding.

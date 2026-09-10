@@ -1,4 +1,5 @@
 # Hardware Protection, Invariant Viewports & Precision Highlighting
+
 ## Zero-Strain Battery/RAM Architecture, Seamless Chapter Progression & Pixel-Perfect PDF Markups
 
 - **Zero-Strain Hardware & Battery Architecture**: Implemented an adaptive sliding-window page snapshot cache ($N \pm 4$) with immediate low-memory and background texture purges, cutting peak RAM by 94% (<42MB) with 0% idle CPU drain.

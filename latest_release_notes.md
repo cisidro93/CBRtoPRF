@@ -1,8 +1,8 @@
-### What's New in Build 3330 (Latest)
+# What's New in Build 3330 (Latest)
 
-**Hardware Protection, Invariant Viewports & Precision Highlighting**
+## Hardware Protection, Invariant Viewports & Precision Highlighting
 
-*Zero-Strain Battery/RAM Architecture, Seamless Chapter Progression & Pixel-Perfect PDF Markups*
+### Zero-Strain Battery/RAM Architecture, Seamless Chapter Progression & Pixel-Perfect PDF Markups
 
 - **[Performance] Zero-Strain Hardware & Battery Architecture**: Adaptive sliding-window snapshot caching ($N \pm 4$) and immediate low-memory texture purging cut peak RAM by 94% (<42MB) with 0% idle CPU drain.
 - **[Reader] Invariant Viewport (Zero Layout Shift)**: Progress bars and footers moved to floating overlays, locking reading canvas dimensions 100% static when toggling the HUD.
