@@ -42,7 +42,7 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIPageViewController {
         let isInstant = (prefs.pageTurnStyle == .instant)
         let transitionStyle: UIPageViewController.TransitionStyle = isInstant ? .scroll : .pageCurl
-        let pvc = UIPageViewController(
+        let pvc = InksyncPageViewController(
             transitionStyle: transitionStyle,
             navigationOrientation: .horizontal,
             options: nil
@@ -50,6 +50,11 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
         pvc.isDoubleSided = false
         pvc.dataSource = context.coordinator
         pvc.delegate = context.coordinator
+
+        pvc.onLayoutSubviews = { [weak coordinator = context.coordinator] bounds in
+            guard bounds.width > 1 && bounds.height > 1 else { return }
+            coordinator?.handleContainerBoundsUpdated(bounds)
+        }
 
         let view = pvc.view!
         view.backgroundColor = UIColor(hex: prefs.activeTheme.cssBackground) ?? .black
@@ -170,6 +175,10 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
 
         if let currentVC = uiViewController.viewControllers?.first as? EBookPageContentViewController {
             if currentVC.pageIndex == targetIndex && context.coordinator.currentPageIndex == targetIndex {
+                // Ensure primaryWebView is framed to valid bounds and mounted to root on initial layout
+                if uiViewController.view.bounds.width > 1 && uiViewController.view.bounds.height > 1 {
+                    context.coordinator.mountPrimaryWebViewOnRoot()
+                }
                 return // Target page is ALREADY displayed on screen — do NOT touch setViewControllers!
             }
 
@@ -764,13 +773,37 @@ extension EBookPageCurlReader {
             }
         }
 
+        func handleContainerBoundsUpdated(_ bounds: CGRect) {
+            guard bounds.width > 1 && bounds.height > 1 else { return }
+            guard let wv = primaryWebView, let pvc = pageViewController else { return }
+
+            let boundsChanged = (abs(wv.frame.width - bounds.width) > 0.5 || abs(wv.frame.height - bounds.height) > 0.5)
+            if wv.frame != bounds {
+                wv.frame = bounds
+            }
+
+            if !isTransitioning {
+                pvc.view.bringSubviewToFront(wv)
+                wv.isHidden = false
+            }
+
+            if boundsChanged {
+                wv.evaluateJavaScript("if(window.computeMetrics) { computeMetrics(); applyPagePosition(false); }")
+            }
+        }
+
         func mountPrimaryWebViewOnRoot() {
             guard let pvc = pageViewController, let wv = primaryWebView else { return }
             let bgColor = UIColor(hex: parent.prefs.activeTheme.cssBackground) ?? .black
             pvc.view.backgroundColor = bgColor
             wv.backgroundColor = .clear
             wv.scrollView.backgroundColor = .clear
-            wv.frame = pvc.view.bounds
+
+            let targetBounds = (pvc.view.bounds.width > 1 && pvc.view.bounds.height > 1)
+                ? pvc.view.bounds
+                : (pvc.view.window?.bounds ?? UIScreen.main.bounds)
+
+            wv.frame = targetBounds
             wv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             if wv.superview != pvc.view {
                 wv.removeFromSuperview()
@@ -1045,9 +1078,7 @@ extension EBookPageCurlReader {
                 self?.parent.webViewRef = webView
             }
             restoreHighlights(in: webView)
-
-            // Take initial snapshot of active page once loaded
-            takePageSnapshot(for: currentPageIndex)
+            // Note: Snapshot is deferred to didReceiveMetrics once DOM fonts and layout metrics settle.
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -1240,8 +1271,11 @@ extension EBookPageCurlReader {
         }
 
         private func takePageSnapshot(for pageIndex: Int) {
-            guard let wv = primaryWebView else { return }
-            wv.takeSnapshot(with: nil) { [weak self] image, _ in
+            guard let wv = primaryWebView, wv.bounds.width > 1, wv.bounds.height > 1 else { return }
+            let config = WKSnapshotConfiguration()
+            config.rect = wv.bounds
+            config.afterScreenUpdates = true
+            wv.takeSnapshot(with: config) { [weak self] image, _ in
                 guard let self = self, let img = image else { return }
                 self.pageSnapshots[pageIndex] = img
                 if let vcs = self.pageViewController?.viewControllers as? [EBookPageContentViewController] {
@@ -1716,6 +1750,9 @@ extension EBookPageCurlReader {
                 __resizeTimeout = setTimeout(function() {
                     computeMetrics();
                     applyPagePosition(false);
+                    try {
+                        window.webkit.messageHandlers.metrics.postMessage({ current: _targetPage, total: _totalPages });
+                    } catch(e) {}
                 }, 40);
             });
 
@@ -2077,6 +2114,21 @@ extension EBookPageCurlReader {
             result = "<body><div id=\"inksync-viewport\">" + result + "</div></body>"
         }
         return result
+    }
+}
+
+// ============================================================
+// MARK: - InksyncPageViewController
+// Specialized UIPageViewController subclass providing layout observation
+// to guarantee primary WKWebView frames & Z-order stay aligned with container bounds.
+// ============================================================
+@MainActor
+final class InksyncPageViewController: UIPageViewController {
+    var onLayoutSubviews: ((CGRect) -> Void)?
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        onLayoutSubviews?(view.bounds)
     }
 }
 
