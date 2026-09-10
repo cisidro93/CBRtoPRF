@@ -26,6 +26,8 @@ struct UnifiedReaderView: View {
     @ObservedObject private var prefs = EBookPreferences.shared
     @AppStorage("studyNotebookPlacement") private var notebookPlacement: SidebarPlacement = .right
     @State private var notebookWidth: CGFloat = 380
+    @State private var dragInitialWidth: CGFloat? = nil
+    @State private var isDraggingDivider: Bool = false
 
     init(pdf: ConvertedPDF, allBooks: [ConvertedPDF] = [], startWithNotebookOpen: Bool = false) {
         self.initialPDF = pdf
@@ -203,34 +205,7 @@ struct UnifiedReaderView: View {
                     .transition(.move(edge: .leading).combined(with: .opacity))
                     .id("sidebar_notebook_\(pdf.id)")
                     
-                    // Custom Draggable Divider
-                    ZStack {
-                        Color.clear
-                            .frame(width: 16)
-                            .contentShape(Rectangle())
-                        
-                        Rectangle()
-                            .fill(Color.white.opacity(0.12))
-                            .frame(width: 1)
-                        
-                        Capsule()
-                            .fill(Color.orange)
-                            .frame(width: 4, height: 40)
-                            .shadow(color: .orange.opacity(0.4), radius: 3)
-                    }
-                    .frame(width: 16)
-                    .gesture(
-                        DragGesture(minimumDistance: 1)
-                            .onChanged { value in
-                                let totalWidth = geo.size.width
-                                let newWidth = value.location.x
-                                let clamped = max(260, min(newWidth, totalWidth * 0.65))
-                                if abs(clamped - notebookWidth) > 15 {
-                                    HapticEngine.selection()
-                                }
-                                notebookWidth = clamped
-                            }
-                    )
+                    draggableDivider(geo: geo, placement: .left)
                 }
                 
                 ZStack {
@@ -254,34 +229,7 @@ struct UnifiedReaderView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 
                 if notebookPlacement == .right && showNotebookPanel && sizeClass == .regular {
-                    // Custom Draggable Divider
-                    ZStack {
-                        Color.clear
-                            .frame(width: 16)
-                            .contentShape(Rectangle())
-                        
-                        Rectangle()
-                            .fill(Color.white.opacity(0.12))
-                            .frame(width: 1)
-                        
-                        Capsule()
-                            .fill(Color.orange)
-                            .frame(width: 4, height: 40)
-                            .shadow(color: .orange.opacity(0.4), radius: 3)
-                    }
-                    .frame(width: 16)
-                    .gesture(
-                        DragGesture(minimumDistance: 1)
-                            .onChanged { value in
-                                let totalWidth = geo.size.width
-                                let newWidth = totalWidth - value.location.x
-                                let clamped = max(260, min(newWidth, totalWidth * 0.65))
-                                if abs(clamped - notebookWidth) > 15 {
-                                    HapticEngine.selection()
-                                }
-                                notebookWidth = clamped
-                            }
-                    )
+                    draggableDivider(geo: geo, placement: .right)
                     
                     StudyNotebookView(
                         bookID: pdf.id.uuidString,
@@ -418,6 +366,66 @@ struct UnifiedReaderView: View {
             onDismiss: {
                 dismiss()
             }
+        )
+    }
+    
+    // MARK: - Split-Screen Divider
+    @ViewBuilder
+    private func draggableDivider(geo: GeometryProxy, placement: SidebarPlacement) -> some View {
+        ZStack {
+            // Expanded invisible touch padding (36pt) so user's finger never slips off the bar
+            Color.clear
+                .frame(width: 36)
+                .contentShape(Rectangle())
+            
+            Rectangle()
+                .fill(Color.white.opacity(isDraggingDivider ? 0.28 : 0.12))
+                .frame(width: 1)
+            
+            Capsule()
+                .fill(isDraggingDivider ? Color.orange : Color.orange.opacity(0.85))
+                .frame(width: isDraggingDivider ? 5 : 4, height: isDraggingDivider ? 48 : 40)
+                .shadow(color: .orange.opacity(isDraggingDivider ? 0.6 : 0.3), radius: isDraggingDivider ? 5 : 3)
+        }
+        .frame(width: 36)
+        .gesture(
+            DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { value in
+                    let totalWidth = geo.size.width
+                    let startWidth = dragInitialWidth ?? notebookWidth
+                    if dragInitialWidth == nil {
+                        dragInitialWidth = notebookWidth
+                        isDraggingDivider = true
+                    }
+                    
+                    let delta = (placement == .right) ? -value.translation.width : value.translation.width
+                    var proposed = startWidth + delta
+                    let effectiveMinW: CGFloat = min(280, totalWidth * 0.40)
+                    let effectiveMaxW: CGFloat = max(effectiveMinW, min(totalWidth * 0.70, totalWidth - 280))
+                    proposed = max(effectiveMinW, min(proposed, effectiveMaxW))
+                    
+                    // Magnetic snap points at ~30%, ~50%, and ~65%
+                    let snapPoints: [CGFloat] = [
+                        totalWidth * 0.30,
+                        totalWidth * 0.50,
+                        totalWidth * 0.65
+                    ]
+                    for snap in snapPoints {
+                        if abs(proposed - snap) < 14 {
+                            if abs(notebookWidth - snap) >= 14 {
+                                HapticEngine.selection()
+                            }
+                            proposed = snap
+                            break
+                        }
+                    }
+                    
+                    notebookWidth = proposed
+                }
+                .onEnded { _ in
+                    dragInitialWidth = nil
+                    isDraggingDivider = false
+                }
         )
     }
     

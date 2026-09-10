@@ -74,17 +74,7 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
             }
         }
 
-        // Double tap — restricted to direct finger touches
-        let doubleTap = UITapGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.handleDoubleTap(_:))
-        )
-        doubleTap.numberOfTapsRequired = 2
-        doubleTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
-        doubleTap.cancelsTouchesInView = false
-        view.addGestureRecognizer(doubleTap)
-
-        // Single tap — handles left/center/right zones — guarded by selectionGuard & doubleTap
+        // Single tap — handles left/center/right zones — fires instantly (< 5ms) on touch-up
         let singleTap = UITapGestureRecognizer(
             target: context.coordinator,
             action: #selector(Coordinator.handleSingleTap(_:))
@@ -93,7 +83,6 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
         singleTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         singleTap.cancelsTouchesInView = false
         singleTap.delegate = context.coordinator
-        singleTap.require(toFail: doubleTap)
         view.addGestureRecognizer(singleTap)
 
         // Pinch to Zoom / Scale Text (Kindle-style interactive text scaling)
@@ -532,11 +521,15 @@ extension EBookPageCurlReader {
                 if vcs.count >= 2 {
                     safeVCs = Array(vcs.prefix(2))
                 } else if let first = vcs.first {
-                    let second = makePageViewController(for: min(currentPageIndex + 1, max(0, computedTotalPages - 1)))
+                    let second = (currentPageIndex + 1 < computedTotalPages)
+                        ? makePageViewController(for: currentPageIndex + 1)
+                        : makeBlankPageViewController(for: currentPageIndex + 1)
                     safeVCs = [first, second]
                 } else {
                     let first = makePageViewController(for: currentPageIndex)
-                    let second = makePageViewController(for: min(currentPageIndex + 1, max(0, computedTotalPages - 1)))
+                    let second = (currentPageIndex + 1 < computedTotalPages)
+                        ? makePageViewController(for: currentPageIndex + 1)
+                        : makeBlankPageViewController(for: currentPageIndex + 1)
                     safeVCs = [first, second]
                 }
             }
@@ -625,6 +618,8 @@ extension EBookPageCurlReader {
             guard let contentVC = viewController as? EBookPageContentViewController else { return nil }
             let prevIndex = contentVC.pageIndex - 1
             if prevIndex < 0 {
+                // Prevent dragging infinitely into negative index space past transition page
+                if prevIndex < -1 { return nil }
                 // Return unique transition page to previous chapter to allow backward curl
                 return makeBlankPageViewController(for: prevIndex)
             }
@@ -638,6 +633,8 @@ extension EBookPageCurlReader {
             guard let contentVC = viewController as? EBookPageContentViewController else { return nil }
             let nextIndex = contentVC.pageIndex + 1
             if nextIndex >= computedTotalPages {
+                // Prevent dragging infinitely past the end of the chapter past transition page
+                if nextIndex > computedTotalPages { return nil }
                 // Return unique transition page to next chapter to allow forward curl
                 return makeBlankPageViewController(for: nextIndex)
             }
@@ -799,7 +796,9 @@ extension EBookPageCurlReader {
                 let leftIndex = currentPageIndex % 2 == 0 ? currentPageIndex : currentPageIndex - 1
                 let rightIndex = leftIndex + 1
                 let leftVC = makePageViewController(for: leftIndex)
-                let rightVC = makePageViewController(for: min(rightIndex, max(0, computedTotalPages - 1)))
+                let rightVC = rightIndex < computedTotalPages
+                    ? makePageViewController(for: rightIndex)
+                    : makeBlankPageViewController(for: rightIndex)
                 pageViewController.isDoubleSided = true
                 pageViewController.setViewControllers([leftVC, rightVC], direction: .forward, animated: false)
                 return .mid
@@ -1509,6 +1508,11 @@ extension EBookPageCurlReader {
                 overflow: visible !important;
                 -webkit-user-select: text !important;
                 user-select: text !important;
+                will-change: transform;
+                -webkit-backface-visibility: hidden;
+                backface-visibility: hidden;
+                transform: translate3d(0, 0, 0);
+                -webkit-transform: translate3d(0, 0, 0);
                 \(pagedCSS)
                 /* No CSS transition — column jumps are instantaneous; animation belongs to UIPageViewController curl. */
             }
@@ -1600,8 +1604,8 @@ extension EBookPageCurlReader {
                 var vp = document.getElementById('inksync-viewport') || document.body;
                 if (vp) {
                     if (animated === true) {
-                        vp.style.transition = 'transform 0.22s cubic-bezier(0.25, 1, 0.5, 1)';
-                        vp.style.webkitTransition = '-webkit-transform 0.22s cubic-bezier(0.25, 1, 0.5, 1)';
+                        vp.style.transition = 'transform 0.16s cubic-bezier(0.15, 1, 0.3, 1)';
+                        vp.style.webkitTransition = '-webkit-transform 0.16s cubic-bezier(0.15, 1, 0.3, 1)';
                     } else {
                         vp.style.transition = 'none';
                         vp.style.webkitTransition = 'none';
@@ -1694,9 +1698,13 @@ extension EBookPageCurlReader {
                 });
             }
 
+            var __resizeTimeout = null;
             window.addEventListener('resize', function() {
-                computeMetrics();
-                applyPagePosition();
+                if (__resizeTimeout) clearTimeout(__resizeTimeout);
+                __resizeTimeout = setTimeout(function() {
+                    computeMetrics();
+                    applyPagePosition(false);
+                }, 40);
             });
 
             document.addEventListener('selectionchange', function() {

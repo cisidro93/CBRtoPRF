@@ -72,8 +72,10 @@ struct EBookReaderView: View {
     @State private var toastMessage: String = ""
     @State private var showToast: Bool = false
     @State private var toastTask: Task<Void, Never>? = nil
-    // Gap A: Annotations panel
+    // Gap A: Annotations & Study Notebook panel
     @State private var showAnnotations = false
+    // Dedicated Book Highlights inspector
+    @State private var showHighlights = false
     // Gap B: In-reader search
     @State private var showSearch = false
     /// Pending search match text — injected via window.find() after chapter navigation.
@@ -302,6 +304,9 @@ struct EBookReaderView: View {
         .sheet(isPresented: $showAnnotations) {
             annotationsSheet
         }
+        .sheet(isPresented: $showHighlights) {
+            highlightsSheet
+        }
         .sheet(isPresented: $showSleepTimerPicker) {
             SleepTimerPickerSheet()
         }
@@ -474,15 +479,23 @@ struct EBookReaderView: View {
                     }
                 }
                 Section("Tools") {
-                    // Gap A: Annotations + highlights panel
+                    // Dedicated Book Highlights Inspector
                     Button {
+                        HapticEngine.selection()
+                        showHighlights = true
+                    } label: {
+                        Label("Book Highlights", systemImage: "highlighter")
+                    }
+                    // Dedicated Study Notebook (Notes, Cornell, PencilKit)
+                    Button {
+                        HapticEngine.selection()
                         if sizeClass == .regular {
                             NotificationCenter.default.post(name: .toggleStudyNotebook, object: nil)
                         } else {
                             showAnnotations = true
                         }
                     } label: {
-                        Label("Highlights & Notes", systemImage: "highlighter")
+                        Label("Study Notebook", systemImage: "note.text")
                     }
                     Button { toggleNarration() } label: {
                         Label(
@@ -1286,6 +1299,31 @@ struct EBookReaderView: View {
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(28)
         }
+    }
+
+    @ViewBuilder
+    private var highlightsSheet: some View {
+        let matchedPDF = pdf ?? conversionManager.convertedPDFs.first(where: { $0.url.lastPathComponent == fileURL.lastPathComponent })
+        let activeBookID = matchedPDF?.id.uuidString ?? fileURL.lastPathComponent
+        let activeBookTitle = matchedPDF?.name ?? title
+        
+        BookHighlightsView(
+            bookID: activeBookID,
+            bookTitle: activeBookTitle,
+            onJumpToHighlight: { highlight in
+                var info: [String: Any] = [
+                    "pageIndex": highlight.pageIndex,
+                    "chapterPage": highlight.pageIndex,
+                    "page": highlight.pageIndex
+                ]
+                if let chap = highlight.chapterTitle { info["chapterTitle"] = chap }
+                if let text = highlight.selectedText { info["selectedText"] = text }
+                NotificationCenter.default.post(name: .readerJumpToPage, object: nil, userInfo: info)
+            }
+        )
+        .presentationDetents([.medium, .fraction(0.88)])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(28)
     }
 
     @ViewBuilder
