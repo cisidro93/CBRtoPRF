@@ -1295,26 +1295,7 @@ private func computeColumnCount(for size: CGSize) -> Int {
                                     },
                                     onCenterTap: { chromeVisible.toggle() },
                                     onHighlightCreated: { selectedText in
-                                        let rawLabel = vm.tocItems[safe: vm.currentChapterIndex]?.label ?? ""
-                                        let spineLabel = !rawLabel.isEmpty ? rawLabel : nil
-                                        let highlight = Annotation(
-                                            pdfID: pdf.id,
-                                            pageIndex: vm.currentChapterIndex,
-                                            chapterTitle: spineLabel,
-                                            kind: .highlight,
-                                            createdAt: Date(),
-                                            modifiedAt: Date(),
-                                            colorHex: "#FFD600",
-                                            selectedText: selectedText
-                                        )
-                                        AnnotationStore.shared.add(highlight)
-                                        let chapterStr = spineLabel ?? "Chapter \(vm.currentChapterIndex + 1)"
-                                        StudyNotesStore.shared.appendHighlight(selectedText, chapter: chapterStr)
-
-                                        let sdAnnotation = SDAnnotation(from: highlight)
-                                        modelContext.insert(sdAnnotation)
-                                        try? modelContext.save()
-                                        self.activeHighlightToEdit = sdAnnotation
+                                        recordHighlight(selectedText: selectedText, hexColor: "#FFD600")
                                     },
                                     onHighlightTapped: { tappedText in
                                         if let sdMatch = findMatchingAnnotation(tappedText: tappedText) {
@@ -1352,25 +1333,7 @@ private func computeColumnCount(for size: CGSize) -> Int {
                                     currentPage: $chapterPage,
                                     totalPages: $chapterTotalPages,
                                     onHighlightCreated: { selectedText, _ in
-                                        let rawLabel = vm.tocItems[safe: vm.currentChapterIndex]?.label ?? ""
-                                        let spineLabel = !rawLabel.isEmpty ? rawLabel : nil
-                                        let highlight = Annotation(
-                                            pdfID: pdf.id,
-                                            pageIndex: vm.currentChapterIndex,
-                                            chapterTitle: spineLabel,
-                                            kind: .highlight,
-                                            createdAt: Date(),
-                                            modifiedAt: Date(),
-                                            colorHex: "#ffd700",
-                                            selectedText: selectedText
-                                        )
-                                        AnnotationStore.shared.add(highlight)
-                                        StudyNotesStore.shared.appendHighlight(selectedText, chapter: spineLabel ?? "Chapter \(vm.currentChapterIndex + 1)")
-
-                                        let sdAnnotation = SDAnnotation(from: highlight)
-                                        modelContext.insert(sdAnnotation)
-                                        try? modelContext.save()
-                                        self.activeHighlightToEdit = sdAnnotation
+                                        recordHighlight(selectedText: selectedText, hexColor: "#FFD600")
                                     },
                                     onPageLoaded: { webView in
                                         self.webViewReference = webView
@@ -1716,6 +1679,31 @@ private func computeColumnCount(for size: CGSize) -> Int {
                 }
             }
         }
+    }
+
+    private func recordHighlight(selectedText: String, hexColor: String) {
+        let rawLabel = vm.tocItems[safe: vm.currentChapterIndex]?.label ?? ""
+        let spineLabel: String? = rawLabel.isEmpty ? nil : rawLabel
+        let highlight = Annotation(
+            pdfID: pdf.id,
+            pageIndex: vm.currentChapterIndex,
+            chapterTitle: spineLabel,
+            kind: .highlight,
+            createdAt: Date(),
+            modifiedAt: Date(),
+            colorHex: hexColor,
+            selectedText: selectedText
+        )
+        AnnotationStore.shared.add(highlight)
+        let chapterNum = vm.currentChapterIndex + 1
+        let fallbackChapter = "Chapter " + String(chapterNum)
+        let chapterStr: String = rawLabel.isEmpty ? fallbackChapter : rawLabel
+        StudyNotesStore.shared.appendHighlight(selectedText, chapter: chapterStr)
+
+        let sdAnnotation = SDAnnotation(from: highlight)
+        modelContext.insert(sdAnnotation)
+        try? modelContext.save()
+        self.activeHighlightToEdit = sdAnnotation
     }
 
     private func findMatchingAnnotation(tappedText: String) -> SDAnnotation? {
