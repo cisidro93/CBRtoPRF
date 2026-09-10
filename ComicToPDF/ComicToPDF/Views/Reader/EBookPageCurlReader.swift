@@ -22,6 +22,8 @@ struct EBookPageCurlReader: UIViewControllerRepresentable {
     var onNext: () -> Void
     var onPrev: () -> Void
     var onCenterTap: () -> Void
+    var onPageTurn: (() -> Void)? = nil
+    var isHUDShowing: Bool = false
     var onHighlightCreated: ((String) -> Void)? = nil
     var onHighlightCreatedWithMetadata: ((String, String, String) -> Void)? = nil
     var onHighlightTapped: ((String) -> Void)? = nil
@@ -340,9 +342,9 @@ extension EBookPageCurlReader {
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            // Block our tap or page curl pan if user is actively selecting text or dragging a selection
-            if isUserSelectingText || isTouchDragActive {
-                if gestureRecognizer is UITapGestureRecognizer || gestureRecognizer is UIPanGestureRecognizer {
+            // Block page curl pan if user is actively dragging a selection
+            if isTouchDragActive {
+                if gestureRecognizer is UIPanGestureRecognizer {
                     return false
                 }
             }
@@ -715,6 +717,7 @@ extension EBookPageCurlReader {
             let hasExceededStart = activeVCs.contains { $0.pageIndex < 0 }
 
             if completed {
+                parent.onPageTurn?()
                 if hasExceededEnd {
                     parent.onNext()
                     return
@@ -889,6 +892,13 @@ extension EBookPageCurlReader {
             if isUserSelectingText {
                 isUserSelectingText = false
                 primaryWebView?.evaluateJavaScript("window.getSelection().removeAllRanges();")
+                parent.onSelectionDismissed?()
+                return
+            }
+
+            // If the reader HUD overlay is currently showing, any tap on the canvas immediately dismisses it
+            if parent.isHUDShowing {
+                parent.onCenterTap()
                 return
             }
 
@@ -977,6 +987,7 @@ extension EBookPageCurlReader {
             let cols = parent.prefs.columnCount == 0 ? (isLandscape ? (parent.prefs.autoLandscapeDualPage ? 2 : (isPad ? 2 : 1)) : 1) : parent.prefs.columnCount
             let step = cols > 1 ? 2 : 1
 
+            parent.onPageTurn?()
             let nextIndex = currentPageIndex + step
             if nextIndex < computedTotalPages {
                 HapticEngine.light()
@@ -1005,6 +1016,7 @@ extension EBookPageCurlReader {
             let cols = parent.prefs.columnCount == 0 ? (isLandscape ? (parent.prefs.autoLandscapeDualPage ? 2 : (isPad ? 2 : 1)) : 1) : parent.prefs.columnCount
             let step = cols > 1 ? 2 : 1
 
+            parent.onPageTurn?()
             let prevIndex = currentPageIndex - step
             if prevIndex >= 0 {
                 HapticEngine.light()

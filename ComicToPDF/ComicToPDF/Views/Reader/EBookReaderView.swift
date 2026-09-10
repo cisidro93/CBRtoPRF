@@ -46,6 +46,37 @@ struct EBookReaderView: View {
     @State private var isLoading = true
     @State private var showChapterList = false
     @State private var showHUD = true
+    @State private var hudIdleTask: Task<Void, Never>? = nil
+
+    private func startHUDIdleTimer(delay: UInt64 = 3_500_000_000) {
+        hudIdleTask?.cancel()
+        hudIdleTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showHUD = false
+            }
+        }
+    }
+
+    private func dismissHUD() {
+        hudIdleTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showHUD = false
+            selectedTextForHUD = nil
+        }
+    }
+
+    private func toggleHUD() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showHUD.toggle()
+        }
+        if showHUD {
+            startHUDIdleTimer()
+        } else {
+            hudIdleTask?.cancel()
+        }
+    }
     @State private var errorMessage: String?
     @State private var loadDiagnosticReport: DocumentDiagnosticReport? = nil
     @State private var unzipDir: URL?
@@ -171,7 +202,9 @@ struct EBookReaderView: View {
                                 startAtEndOfChapter: startAtEndOfChapter,
                                 onNext:      nextChapter,
                                 onPrev:      prevChapter,
-                                onCenterTap: { withAnimation(.easeInOut(duration: 0.2)) { showHUD.toggle() } },
+                                onCenterTap: toggleHUD,
+                                onPageTurn:  dismissHUD,
+                                isHUDShowing: showHUD,
                                 onHighlightCreated: { selectedText in
                                     guard !isApplyingHighlightDirectly else { return }
                                     let defaultColor = EBookPreferences.shared.defaultHighlightColor.rawValue
@@ -228,7 +261,8 @@ struct EBookReaderView: View {
                                 totalPages:  $chapterTotalPages,
                                 onNext:      nextChapter,
                                 onPrev:      prevChapter,
-                                onCenterTap: { withAnimation(.easeInOut(duration: 0.2)) { showHUD.toggle() } },
+                                onCenterTap: toggleHUD,
+                                onPageTurn:  dismissHUD,
                                 onHighlightCreated: { selectedText in
                                     guard let p = pdf else { return }
                                     let rawLabel = metadata?.spineItems[safe: currentIndex]?.label ?? ""
@@ -318,17 +352,37 @@ struct EBookReaderView: View {
         }
         .task { await loadBook() }
         .onDisappear { 
+            hudIdleTask?.cancel()
             narrationEngine.stop()
             cleanup()
             saveProgress() 
         }
         // FIX 4: Save scroll fraction whenever the chapter page changes
         .onChange(of: chapterPage) { _, _ in
+            if showHUD {
+                dismissHUD()
+            }
             saveProgress()
             velocityEngine.recordPageTurn()
             Task {
                 await ReadingPaceTracker.shared.recordPageTurn(wordsOnPage: 280, timeSpentSeconds: 12.0)
             }
+        }
+        .onChange(of: showingSettingsPanel) { _, isShowing in
+            if isShowing { hudIdleTask?.cancel() }
+            else { startHUDIdleTimer(delay: 3_500_000_000) }
+        }
+        .onChange(of: showHighlights) { _, isShowing in
+            if isShowing { hudIdleTask?.cancel() }
+            else { startHUDIdleTimer(delay: 3_500_000_000) }
+        }
+        .onChange(of: showAnnotations) { _, isShowing in
+            if isShowing { hudIdleTask?.cancel() }
+            else { startHUDIdleTimer(delay: 3_500_000_000) }
+        }
+        .onChange(of: showSearch) { _, isShowing in
+            if isShowing { hudIdleTask?.cancel() }
+            else { startHUDIdleTimer(delay: 3_500_000_000) }
         }
         // Also save position when the app goes to the background
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
@@ -557,6 +611,7 @@ struct EBookReaderView: View {
                                 let target = Int((newVal * Double(totalChapters - 1)).rounded())
                                 withAnimation(.easeInOut(duration: 0.18)) { currentIndex = target }
                                 saveProgress()
+                                startHUDIdleTimer()
                             }
                         ),
                         in: 0...1
@@ -631,73 +686,85 @@ struct EBookReaderView: View {
     
     // MARK: - Chapter Drawer
     @ViewBuilder private var chapterDrawer: some View {
-        VStack(spacing: 0) {
-            Color.clear.frame(height: 72) // clear under top bar
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(visibleChapters, id: \.index) { item in
-                            Button {
-                                let fromIndex = currentIndex
-                                let toIndex = item.index
-                                let fromLabel = currentChapterTitle
-                                if fromIndex != toIndex {
-                                    ReadingJumpTracker.shared.recordJump(fromPage: fromIndex, toPage: toIndex, chapterLabel: fromLabel) {
-                                        withAnimation(.spring()) {
-                                            isGoingForward = fromIndex >= currentIndex
-                                            currentIndex = fromIndex
-                                            chapterPage = 0
-                                            chapterScrollFraction = 0.0
-                                            saveProgress()
-                                        }
-                                    }
-                                }
-                                withAnimation(.spring()) {
-                                    currentIndex = item.index
-                                    chapterPage = 0
-                                    chapterScrollFraction = 0.0
-                                    showChapterList = false
-                                }
-                                saveProgress()
-                            } label: {
-                                HStack(spacing: 12) {
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(item.index == currentIndex ? Color(hex: "#7B5EA7") : Color.clear)
-                                        .frame(width: 3, height: 22)
-                                    Text(item.label)
-                                        .font(.subheadline)
-                                        .fontWeight(item.index == currentIndex ? .semibold : .regular)
-                                        .foregroundStyle(
-                                            item.index == currentIndex
-                                                ? Color(hex: "#7B5EA7")
-                                                : prefs.activeTheme.foreground(colorScheme: colorScheme)
-                                        )
-                                    Spacer()
-                                    if item.index == currentIndex {
-                                        Image(systemName: "book.fill")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(Color(hex: "#7B5EA7").opacity(0.7))
-                                    }
-                                }
-                                .padding(.horizontal, 16).padding(.vertical, 13)
-                                .background(item.index == currentIndex ? Color(hex: "#7B5EA7").opacity(0.08) : Color.clear)
-                            }
-                            .buttonStyle(.plain)
-                            .id(item.index)
-                            Divider().opacity(0.3)
-                        }
+        ZStack {
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.spring()) {
+                        showChapterList = false
                     }
                 }
-                .onAppear { proxy.scrollTo(currentIndex, anchor: .center) }
+
+            VStack(spacing: 0) {
+                Color.clear.frame(height: 72) // clear under top bar
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(visibleChapters, id: \.index) { item in
+                                Button {
+                                    let fromIndex = currentIndex
+                                    let toIndex = item.index
+                                    let fromLabel = currentChapterTitle
+                                    if fromIndex != toIndex {
+                                        ReadingJumpTracker.shared.recordJump(fromPage: fromIndex, toPage: toIndex, chapterLabel: fromLabel) {
+                                            withAnimation(.spring()) {
+                                                isGoingForward = fromIndex >= currentIndex
+                                                currentIndex = fromIndex
+                                                chapterPage = 0
+                                                chapterScrollFraction = 0.0
+                                                saveProgress()
+                                            }
+                                        }
+                                    }
+                                    withAnimation(.spring()) {
+                                        currentIndex = item.index
+                                        chapterPage = 0
+                                        chapterScrollFraction = 0.0
+                                        showChapterList = false
+                                    }
+                                    dismissHUD()
+                                    saveProgress()
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(item.index == currentIndex ? Color(hex: "#7B5EA7") : Color.clear)
+                                            .frame(width: 3, height: 22)
+                                        Text(item.label)
+                                            .font(.subheadline)
+                                            .fontWeight(item.index == currentIndex ? .semibold : .regular)
+                                            .foregroundStyle(
+                                                item.index == currentIndex
+                                                    ? Color(hex: "#7B5EA7")
+                                                    : prefs.activeTheme.foreground(colorScheme: colorScheme)
+                                            )
+                                        Spacer()
+                                        if item.index == currentIndex {
+                                            Image(systemName: "book.fill")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(Color(hex: "#7B5EA7").opacity(0.7))
+                                        }
+                                    }
+                                    .padding(.horizontal, 16).padding(.vertical, 13)
+                                    .background(item.index == currentIndex ? Color(hex: "#7B5EA7").opacity(0.08) : Color.clear)
+                                }
+                                .buttonStyle(.plain)
+                                .id(item.index)
+                                Divider().opacity(0.3)
+                            }
+                        }
+                    }
+                    .onAppear { proxy.scrollTo(currentIndex, anchor: .center) }
+                }
+                .frame(maxWidth: 320)
+                .background(prefs.activeTheme.background(colorScheme: colorScheme).opacity(0.97))
+                .background(.thinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 8)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 16)
+                Spacer()
             }
-            .frame(maxWidth: 320)
-            .background(prefs.activeTheme.background(colorScheme: colorScheme).opacity(0.97))
-            .background(.thinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 8)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.horizontal, 16)
-            Spacer()
         }
         .transition(.asymmetric(
             insertion: .move(edge: .trailing).combined(with: .opacity),
@@ -768,6 +835,7 @@ struct EBookReaderView: View {
     
     // MARK: - Navigation
     private func nextChapter() {
+        dismissHUD()
         if currentIndex >= totalChapters - 1 {
             // Last chapter — try to jump to next volume in series
             attemptSeriesContinuation()
@@ -793,6 +861,7 @@ struct EBookReaderView: View {
     }
 
     private func prevChapter() {
+        dismissHUD()
         guard currentIndex > 0 else { return }
         HapticEngine.medium()
         isGoingForward = false
@@ -860,6 +929,12 @@ struct EBookReaderView: View {
     }
 
     private func handleReaderJumpToPage(_ notification: Notification) {
+        dismissHUD()
+        showChapterList = false
+        showHighlights = false
+        showSearch = false
+        showAnnotations = false
+
         // 1. If chapterTitle is specified, locate and jump to that chapter
         if let targetChapter = notification.userInfo?["chapterTitle"] as? String,
            let meta = metadata,
@@ -898,6 +973,12 @@ struct EBookReaderView: View {
     }
 
     private func handleJumpToChapterHref(_ notification: Notification) {
+        dismissHUD()
+        showChapterList = false
+        showHighlights = false
+        showSearch = false
+        showAnnotations = false
+
         guard let href = notification.userInfo?["href"] as? String, !href.isEmpty, let meta = metadata else { return }
         let cleanTarget = href.lowercased()
         guard let targetIdx = meta.spineItems.firstIndex(where: { $0.href.lowercased().hasSuffix(cleanTarget) }) else { return }
@@ -1074,6 +1155,7 @@ struct EBookReaderView: View {
         }
         self.isLoading = false
         trackEBookProgress()
+        startHUDIdleTimer(delay: 3_000_000_000)
     }
     
         private func saveProgress() {
@@ -1165,56 +1247,69 @@ struct EBookReaderView: View {
     // MARK: - Text Selection & Highlighting HUD
     @ViewBuilder private var textSelectionHUDOverlay: some View {
         if let selectedText = selectedTextForHUD, !selectedText.isEmpty {
-            VStack {
-                Spacer()
-                ProPDFTextSelectionHUD(
-                    selectedText: selectedText,
-                    pageIndex: currentIndex,
-                    onHighlight: { color in
-                        EBookPreferences.shared.defaultHighlightColor = color
-                        applyHighlight(text: selectedText, colorHex: color.rawValue, symbol: nil, style: .highlight)
-                        selectedTextForHUD = nil
-                    },
-                    onMarkup: { color, style in
-                        EBookPreferences.shared.defaultHighlightColor = color
-                        applyHighlight(text: selectedText, colorHex: color.rawValue, symbol: nil, style: style)
-                        selectedTextForHUD = nil
-                    },
-                    onUnhighlight: {
-                        unhighlightInEPUB(text: selectedText)
-                        selectedTextForHUD = nil
-                    },
-                    onAddNote: { note in
-                        applyHighlight(text: selectedText, colorHex: EBookPreferences.shared.defaultHighlightColor.rawValue, note: note, symbol: nil)
-                        selectedTextForHUD = nil
-                    },
-                    onCopy: {
-                        UIPasteboard.general.string = selectedText
-                        selectedTextForHUD = nil
-                        HapticEngine.selection()
-                        showToastMessage("Copied to Clipboard")
-                    },
-                    onSpeak: { text in
-                        speakText(text)
-                    },
-                    onCreateZettelkastenCard: { text in
-                        createZettelkastenCard(text: text)
-                        selectedTextForHUD = nil
-                    },
-                    onAddMarginaliaSymbol: { symbol in
-                        applyHighlight(text: selectedText, colorHex: EBookPreferences.shared.defaultHighlightColor.rawValue, symbol: symbol)
-                        selectedTextForHUD = nil
-                    },
-                    onDismiss: {
+            ZStack {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
                         withAnimation(.easeInOut(duration: 0.18)) {
                             selectedTextForHUD = nil
                         }
                         let wv = resolveActiveWebView() ?? webViewReference
                         wv?.evaluateJavaScript("window.getSelection()?.removeAllRanges();")
                     }
-                )
-                .padding(.bottom, showHUD ? 80 : 30)
-                .padding(.horizontal, 20)
+
+                VStack {
+                    Spacer()
+                    ProPDFTextSelectionHUD(
+                        selectedText: selectedText,
+                        pageIndex: currentIndex,
+                        onHighlight: { color in
+                            EBookPreferences.shared.defaultHighlightColor = color
+                            applyHighlight(text: selectedText, colorHex: color.rawValue, symbol: nil, style: .highlight)
+                            selectedTextForHUD = nil
+                        },
+                        onMarkup: { color, style in
+                            EBookPreferences.shared.defaultHighlightColor = color
+                            applyHighlight(text: selectedText, colorHex: color.rawValue, symbol: nil, style: style)
+                            selectedTextForHUD = nil
+                        },
+                        onUnhighlight: {
+                            unhighlightInEPUB(text: selectedText)
+                            selectedTextForHUD = nil
+                        },
+                        onAddNote: { note in
+                            applyHighlight(text: selectedText, colorHex: EBookPreferences.shared.defaultHighlightColor.rawValue, note: note, symbol: nil)
+                            selectedTextForHUD = nil
+                        },
+                        onCopy: {
+                            UIPasteboard.general.string = selectedText
+                            selectedTextForHUD = nil
+                            HapticEngine.selection()
+                            showToastMessage("Copied to Clipboard")
+                        },
+                        onSpeak: { text in
+                            speakText(text)
+                        },
+                        onCreateZettelkastenCard: { text in
+                            createZettelkastenCard(text: text)
+                            selectedTextForHUD = nil
+                        },
+                        onAddMarginaliaSymbol: { symbol in
+                            applyHighlight(text: selectedText, colorHex: EBookPreferences.shared.defaultHighlightColor.rawValue, symbol: symbol)
+                            selectedTextForHUD = nil
+                        },
+                        onDismiss: {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                selectedTextForHUD = nil
+                            }
+                            let wv = resolveActiveWebView() ?? webViewReference
+                            wv?.evaluateJavaScript("window.getSelection()?.removeAllRanges();")
+                        }
+                    )
+                    .padding(.bottom, showHUD ? 80 : 30)
+                    .padding(.horizontal, 20)
+                }
             }
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
@@ -1228,7 +1323,11 @@ struct EBookReaderView: View {
                 VStack(spacing: 0) {
                     topBar
                         .transition(.move(edge: .top).combined(with: .opacity))
-                    Spacer()
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            dismissHUD()
+                        }
                     bottomBar
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -1798,6 +1897,7 @@ struct EBookWebReader: View {
     var onNext: () -> Void
     var onPrev: () -> Void
     var onCenterTap: () -> Void
+    var onPageTurn: (() -> Void)? = nil
     var onHighlightCreated: ((String) -> Void)? = nil
     var pdfID: UUID? = nil
     var initialScrollFraction: Double = 0.0
@@ -1860,8 +1960,8 @@ struct EBookWebReader: View {
             },
             messageHandler: { message in
                 if message.name == "nav", let body = message.body as? String {
-                    if body == "next" { self.onNext() }
-                    else if body == "prev" { self.onPrev() }
+                    if body == "next" { self.onPageTurn?(); self.onNext() }
+                    else if body == "prev" { self.onPageTurn?(); self.onPrev() }
                     else if body == "center" { self.onCenterTap() }
                 } else if message.name == "metrics", let body = message.body as? [String: Int] {
                     self.currentPage = body["current"] ?? 0
@@ -1954,6 +2054,11 @@ struct EBookWebReader: View {
                     self.onNext()
                 } else if offset < -threshold {
                     self.onPrev()
+                }
+            },
+            scrollViewDidScroll: { scrollView in
+                if scrollView.isDragging {
+                    self.onPageTurn?()
                 }
             },
             processDidTerminate: { webView in
