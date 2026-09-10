@@ -189,8 +189,8 @@ struct PDFPageManagerGridView: View {
     }
 
     private func persistDocumentChanges() {
-        if let doc = pdfDocument, let url = pdf.url {
-            doc.write(to: url)
+        if let doc = pdfDocument {
+            doc.write(to: pdf.url)
         }
         gridRefreshID = UUID()
         onDocumentModified?()
