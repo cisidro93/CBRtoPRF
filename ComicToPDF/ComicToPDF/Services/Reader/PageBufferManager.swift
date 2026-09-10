@@ -111,11 +111,11 @@ class PageBufferManager: ObservableObject {
         let perfClass = ProcessInfo.processInfo.performanceClass
         switch perfClass {
         case .low:
-            imageCache.countLimit = 8
+            imageCache.countLimit = ReaderCacheLimits.comicBufferLowDevice
         case .medium:
-            imageCache.countLimit = 16
+            imageCache.countLimit = ReaderCacheLimits.comicBufferStandardDevice
         case .high:
-            imageCache.countLimit = 32
+            imageCache.countLimit = ReaderCacheLimits.comicBufferProDevice
         }
         Logger.shared.log("PageBufferManager: cache limit configured to \(imageCache.countLimit)", category: "Engine")
     }
@@ -156,7 +156,7 @@ class PageBufferManager: ObservableObject {
     /// countLimit = 7 covers: currentL, currentR, prevL, prevR, nextL, nextR + 1 spare.
     private let imageCache: NSCache<NSNumber, CGImageBox> = {
         let c = NSCache<NSNumber, CGImageBox>()
-        c.countLimit = 7
+        c.countLimit = ReaderCacheLimits.comicDualPageSpread
         c.name = "com.inksyncpro.pagebuffer"
         return c
     }()

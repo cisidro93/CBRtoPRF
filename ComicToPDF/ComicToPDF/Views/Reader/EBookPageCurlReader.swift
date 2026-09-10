@@ -305,7 +305,7 @@ extension EBookPageCurlReader {
 
         /// Prunes snapshot cache to a strict sliding window of (centerIndex ± maxSnapshotDistance)
         /// Preventing retina GPU texture memory leaks and battery drain (KOReader/SumatraPDF model).
-        private let maxSnapshotDistance = 4
+        private let maxSnapshotDistance = ReaderCacheLimits.epubSnapshotDistance
 
         func pruneSnapshotCache(around centerIndex: Int) {
             let minKeep = centerIndex - maxSnapshotDistance

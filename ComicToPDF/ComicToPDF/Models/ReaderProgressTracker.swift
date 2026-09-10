@@ -54,6 +54,85 @@ struct ReadingProgress: Codable, Identifiable {
     var currentCFI: String?
 }
 
+extension ReadingProgress {
+    /// Non-destructively merges local and remote reading progress records.
+    /// Prevents offline reading overwrites by choosing the furthest forward progress
+    /// while unifying reading session histories, timestamps, and active customizations.
+    static func merge(local: ReadingProgress, remote: ReadingProgress) -> ReadingProgress {
+        var merged = local
+
+        // Determine which record represents the furthest reading progression
+        let remoteIsFurther: Bool
+        if let remoteChapter = remote.currentChapterIndex, let localChapter = local.currentChapterIndex {
+            if remoteChapter != localChapter {
+                remoteIsFurther = remoteChapter > localChapter
+            } else {
+                remoteIsFurther = (remote.currentChapterOffset ?? Double(remote.currentPageIndex)) >
+                                  (local.currentChapterOffset ?? Double(local.currentPageIndex))
+            }
+        } else {
+            remoteIsFurther = remote.completionFraction > local.completionFraction ||
+                             (remote.completionFraction == local.completionFraction && remote.currentPageIndex > local.currentPageIndex)
+        }
+
+        if remoteIsFurther {
+            merged.currentPageIndex = remote.currentPageIndex
+            merged.currentChapterIndex = remote.currentChapterIndex
+            merged.currentChapterOffset = remote.currentChapterOffset
+            merged.completionFraction = remote.completionFraction
+            merged.currentCFI = remote.currentCFI ?? local.currentCFI
+            merged.lastCanonicalLeadIndex = remote.lastCanonicalLeadIndex
+            merged.wasInDualPageMode = remote.wasInDualPageMode
+        }
+
+        // Always take maximum lifetime pages read and newest access timestamp
+        merged.totalPagesRead = max(local.totalPagesRead, remote.totalPagesRead)
+        merged.lastOpenedAt = max(local.lastOpenedAt, remote.lastOpenedAt)
+
+        // Union and deduplicate reading session dates (normalize to day)
+        let calendar = Calendar.current
+        let combinedDates = (local.readingSessionDates + remote.readingSessionDates)
+        var seenDays = Set<Date>()
+        var uniqueDates: [Date] = []
+        for d in combinedDates.sorted(by: >) {
+            let start = calendar.startOfDay(for: d)
+            if !seenDays.contains(start) {
+                seenDays.insert(start)
+                uniqueDates.append(d)
+            }
+        }
+        merged.readingSessionDates = uniqueDates
+
+        // Union session events (deduplicate within 60s windows, sort chronologically, cap at 200)
+        var events = (local.sessionEvents ?? []) + (remote.sessionEvents ?? [])
+        events.sort { $0.date < $1.date }
+        var deduplicatedEvents: [ReadingSessionEvent] = []
+        for event in events {
+            if let last = deduplicatedEvents.last, abs(event.date.timeIntervalSince(last.date)) < 60 {
+                continue
+            }
+            deduplicatedEvents.append(event)
+        }
+        if deduplicatedEvents.count > 200 {
+            deduplicatedEvents.removeFirst(deduplicatedEvents.count - 200)
+        }
+        merged.sessionEvents = deduplicatedEvents
+
+        // Non-destructive preservation of display settings and crop insets
+        if merged.customCrop == nil || merged.customCrop == .zero {
+            merged.customCrop = remote.customCrop ?? local.customCrop
+        }
+        if merged.prefersMangaMode == nil {
+            merged.prefersMangaMode = remote.prefersMangaMode ?? local.prefersMangaMode
+        }
+        if merged.colorFilter == nil {
+            merged.colorFilter = remote.colorFilter ?? local.colorFilter
+        }
+
+        return merged
+    }
+}
+
 @MainActor
 class ReaderProgressTracker: ObservableObject {
     static let shared = ReaderProgressTracker()
@@ -321,16 +400,26 @@ class ReaderProgressTracker: ObservableObject {
         iCloudStore.set(data, forKey: iCloudPrefix + pdfID.uuidString)
     }
 
-    /// Pull all remote records and merge: keep whichever device has the newer `lastOpenedAt`.
+    /// Pull all remote records and non-destructively merge with local records.
+    /// Protects offline reading sessions from being overwritten by stale device timestamps.
     private func mergeFromiCloud() {
         let allKeys = iCloudStore.dictionaryRepresentation.keys.filter { $0.hasPrefix(iCloudPrefix) }
         var changed = false
         for key in allKeys {
             guard let data = iCloudStore.data(forKey: key),
                   let remote = try? JSONDecoder().decode(ReadingProgress.self, from: data) else { continue }
-            let local = progressMap[remote.pdfID]
-            // Accept remote if we have no local copy OR remote was opened more recently
-            if local == nil || remote.lastOpenedAt > (local?.lastOpenedAt ?? .distantPast) {
+            if let local = progressMap[remote.pdfID] {
+                let merged = ReadingProgress.merge(local: local, remote: remote)
+                let hasProgressChanged = merged.completionFraction != local.completionFraction ||
+                                         merged.currentPageIndex != local.currentPageIndex ||
+                                         merged.currentChapterIndex != local.currentChapterIndex ||
+                                         merged.lastOpenedAt != local.lastOpenedAt
+                if hasProgressChanged {
+                    progressMap[remote.pdfID] = merged
+                    save(pdfID: remote.pdfID)
+                    changed = true
+                }
+            } else {
                 progressMap[remote.pdfID] = remote
                 save(pdfID: remote.pdfID)
                 changed = true
