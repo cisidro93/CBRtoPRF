@@ -7,10 +7,13 @@ struct PDFPageManagerGridView: View {
     let pdfDocument: PDFDocument?
     var onJumpToPage: (Int) -> Void
     var onDismiss: () -> Void
+    var onDocumentModified: (() -> Void)? = nil
 
     @State private var selectedPageIndices: Set<Int> = []
-    @State private var pageRotations: [Int: Int] = [:] // pageIndex : degree (0, 90, 180, 270)
+    @State private var pageRotations: [Int: Int] = [:]
     @State private var isSelectionMode = false
+    @State private var showDeleteConfirmation = false
+    @State private var gridRefreshID = UUID()
 
     private var totalPages: Int {
         pdfDocument?.pageCount ?? pdf.pageCount
@@ -37,18 +40,21 @@ struct PDFPageManagerGridView: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.white)
                         }
+                        .disabled(selectedPageIndices.isEmpty)
 
                         Button(action: rotateSelectedRight) {
                             Label("Rotate R", systemImage: "rotate.right")
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.white)
                         }
+                        .disabled(selectedPageIndices.isEmpty)
 
-                        Button(action: deleteSelectedPages) {
+                        Button(action: { showDeleteConfirmation = true }) {
                             Label("Delete", systemImage: "trash")
                                 .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.red)
+                                .foregroundColor(selectedPageIndices.isEmpty ? .gray : .red)
                         }
+                        .disabled(selectedPageIndices.isEmpty || (pdfDocument?.pageCount ?? 1) <= 1)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -66,7 +72,8 @@ struct PDFPageManagerGridView: View {
                                     PDFPageThumbnailCard(
                                         pdfDocument: pdfDocument,
                                         pageIndex: pageIndex,
-                                        rotation: pageRotations[pageIndex] ?? 0
+                                        rotation: pageRotations[pageIndex] ?? (pdfDocument?.page(at: pageIndex)?.rotation ?? 0),
+                                        refreshID: gridRefreshID
                                     )
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 8)
@@ -104,6 +111,7 @@ struct PDFPageManagerGridView: View {
                     }
                     .padding(16)
                 }
+                .id(gridRefreshID)
             }
             .navigationTitle("Page Manager (\(totalPages) pages)")
             .navigationBarTitleDisplayMode(.inline)
@@ -129,29 +137,63 @@ struct PDFPageManagerGridView: View {
                 }
             }
             .background(Color.inkBackground)
+            .alert("Delete \(selectedPageIndices.count) Page(s)?", isPresented: $showDeleteConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    performDeleteSelectedPages()
+                }
+            } message: {
+                Text("This will permanently remove the selected pages from this PDF file.")
+            }
         }
     }
 
     private func rotateSelectedLeft() {
+        guard let doc = pdfDocument, !selectedPageIndices.isEmpty else { return }
         HapticEngine.light()
         for idx in selectedPageIndices {
-            let current = pageRotations[idx] ?? 0
-            pageRotations[idx] = (current - 90 + 360) % 360
+            if let page = doc.page(at: idx) {
+                let current = (page.rotation - 90 + 360) % 360
+                page.rotation = current
+                pageRotations[idx] = current
+            }
         }
+        persistDocumentChanges()
     }
 
     private func rotateSelectedRight() {
+        guard let doc = pdfDocument, !selectedPageIndices.isEmpty else { return }
         HapticEngine.light()
         for idx in selectedPageIndices {
-            let current = pageRotations[idx] ?? 0
-            pageRotations[idx] = (current + 90) % 360
+            if let page = doc.page(at: idx) {
+                let current = (page.rotation + 90) % 360
+                page.rotation = current
+                pageRotations[idx] = current
+            }
         }
+        persistDocumentChanges()
     }
 
-    private func deleteSelectedPages() {
+    private func performDeleteSelectedPages() {
+        guard let doc = pdfDocument, !selectedPageIndices.isEmpty else { return }
         HapticEngine.heavy()
-        // Delete pages
+        let sortedDesc = selectedPageIndices.sorted(by: >)
+        for idx in sortedDesc {
+            if idx < doc.pageCount && doc.pageCount > 1 {
+                doc.removePage(at: idx)
+            }
+        }
         selectedPageIndices.removeAll()
+        pageRotations.removeAll()
+        persistDocumentChanges()
+    }
+
+    private func persistDocumentChanges() {
+        if let doc = pdfDocument, let url = pdf.url {
+            doc.write(to: url)
+        }
+        gridRefreshID = UUID()
+        onDocumentModified?()
     }
 }
 
@@ -160,6 +202,7 @@ private struct PDFPageThumbnailCard: View {
     let pdfDocument: PDFDocument?
     let pageIndex: Int
     let rotation: Int
+    let refreshID: UUID
 
     @State private var thumbnailImage: UIImage? = nil
 
@@ -173,14 +216,13 @@ private struct PDFPageThumbnailCard: View {
                 Image(uiImage: img)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .rotationEffect(.degrees(Double(rotation)))
             } else {
                 ProgressView()
                     .scaleEffect(0.8)
             }
         }
         .cornerRadius(8)
-        .task {
+        .task(id: "\(pageIndex)_\(rotation)_\(refreshID)") {
             loadThumbnail()
         }
     }
@@ -190,7 +232,9 @@ private struct PDFPageThumbnailCard: View {
         Task {
             let size = CGSize(width: 140, height: 190)
             let thumb = page.thumbnail(of: size, for: .mediaBox)
-            self.thumbnailImage = thumb
+            await MainActor.run {
+                self.thumbnailImage = thumb
+            }
         }
     }
 }

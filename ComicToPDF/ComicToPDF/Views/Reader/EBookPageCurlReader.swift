@@ -1551,8 +1551,8 @@ extension EBookPageCurlReader {
             div, section, article { column-count: auto !important; column-width: auto !important; }
             p { margin-bottom: \(paraSpace)em !important; text-indent: \(paraIndent)em !important; }
             p, div, span, li, td, th, h1, h2, h3, h4, h5, h6 { color: \(textColor) !important; line-height: \(lineHeight); \(prefs.isBoldTextEnabled ? "font-weight: 600 !important;" : "") }
-            img, svg, .page, .chunk-container { display: block !important; margin-left: auto !important; margin-right: auto !important; }
-            img { max-width: 100% !important; max-height: 100% !important; height: auto !important; border-radius: 4px; object-fit: contain !important; }
+            img, svg, .page, .chunk-container, figure { display: block !important; margin-left: auto !important; margin-right: auto !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+            img { max-width: 100% !important; max-height: 100% !important; height: auto !important; border-radius: 4px; object-fit: contain !important; break-inside: avoid !important; page-break-inside: avoid !important; }
             img.gaiji, img[gaiji], img.inline-image { display: inline-block !important; vertical-align: middle !important; max-height: 1.2em !important; width: auto !important; margin: 0 0.1em !important; }
             pre, table, code { max-width: 100% !important; overflow-x: auto !important; word-wrap: break-word !important; white-space: pre-wrap !important; }
             a { color: \(linkColor) !important; }

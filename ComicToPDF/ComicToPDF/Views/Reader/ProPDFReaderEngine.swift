@@ -454,6 +454,9 @@ struct ProPDFReaderEngine: View {
                 },
                 onDismiss: {
                     showingPageManager = false
+                },
+                onDocumentModified: {
+                    handleDocumentModified()
                 }
             )
             .presentationDetents([.medium, .large])
@@ -1431,6 +1434,15 @@ struct ProPDFReaderEngine: View {
         saveReadingProgress()
     }
 
+    private func handleDocumentModified() {
+        guard let doc = pdfDocument else { return }
+        if currentPageIndex >= doc.pageCount {
+            currentPageIndex = max(0, doc.pageCount - 1)
+        }
+        pdfViewReference?.layoutDocumentView()
+        saveReadingProgress()
+    }
+
     private func advancePage(forward: Bool) {
         let isManga = isMangaMode || prefs.pdfRTL
         let effectiveForward = isManga ? !forward : forward
@@ -2385,6 +2397,13 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         @MainActor func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
             InksyncInkingState.shared.toggleEraser()
             HapticEngine.selection()
+        }
+
+        @available(iOS 17.5, *)
+        @MainActor func pencilInteraction(_ interaction: UIPencilInteraction, didReceiveSqueeze squeeze: UIPencilInteraction.Squeeze) {
+            guard squeeze.phase == .ended else { return }
+            HapticEngine.selection()
+            NotificationCenter.default.post(name: NSNotification.Name("ReaderToggleMarkupMode"), object: nil)
         }
 
         @MainActor func handleNativeHighlightAction() {

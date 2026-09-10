@@ -13,6 +13,7 @@ struct ProDocumentInspectorView: View {
     @State private var selectedTab: InspectorTab = .outline
     @State private var searchQuery: String = ""
     @State private var searchResults: [PDFSelection] = []
+    @State private var unifiedResults: [UnifiedPDFSearchResult] = []
     @State private var isSearching = false
     @State private var annotationPendingDeletion: Annotation? = nil
     @State private var showingDeleteConfirmation = false
@@ -293,11 +294,11 @@ struct ProDocumentInspectorView: View {
             .padding(.top, 12)
 
             if isSearching {
-                ProgressView("Searching document...")
+                ProgressView("Searching document & handwritten notes...")
                     .font(.system(size: 13))
                     .padding()
                 Spacer()
-            } else if searchResults.isEmpty && !searchQuery.isEmpty {
+            } else if unifiedResults.isEmpty && !searchQuery.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "doc.text.magnifyingglass")
                         .font(.system(size: 32, weight: .light))
@@ -309,27 +310,33 @@ struct ProDocumentInspectorView: View {
                 .padding(.top, 32)
                 Spacer()
             } else {
-                List(searchResults.indices, id: \.self) { idx in
-                    let selection = searchResults[idx]
-                    if let page = selection.pages.first, let doc = pdfDocument {
-                        let pageIdx = doc.index(for: page)
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text("Page \(pageIdx + 1)")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundColor(.inkGreen)
-                                Spacer()
+                List(unifiedResults) { result in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text("Page \(result.pageIndex + 1)")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.inkGreen)
+
+                            if let badge = result.badge {
+                                Text(badge)
+                                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(result.isHandwritten ? Color.orange.opacity(0.18) : Color.purple.opacity(0.18))
+                                    .foregroundColor(result.isHandwritten ? .orange : .purple)
+                                    .clipShape(Capsule())
                             }
-                            Text(selection.string ?? "")
-                                .font(.system(size: 13))
-                                .foregroundColor(Theme.text)
-                                .lineLimit(2)
+                            Spacer()
                         }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            onJumpToPage(pageIdx)
-                            onDismiss()
-                        }
+                        Text(result.snippet)
+                            .font(.system(size: 13))
+                            .foregroundColor(Theme.text)
+                            .lineLimit(2)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onJumpToPage(result.pageIndex)
+                        onDismiss()
                     }
                 }
                 .listStyle(.plain)
@@ -342,13 +349,66 @@ struct ProDocumentInspectorView: View {
         guard let doc = pdfDocument, !query.isEmpty else { return }
         isSearching = true
         searchResults.removeAll()
+        unifiedResults.removeAll()
 
         Task {
+            // 1. Text search within PDF vector glyphs
             let matches = doc.findString(query, withOptions: [.caseInsensitive])
-            self.searchResults = matches
-            self.isSearching = false
+            var combined: [UnifiedPDFSearchResult] = []
+            for sel in matches {
+                if let page = sel.pages.first {
+                    let pageIdx = doc.index(for: page)
+                    if pageIdx != NSNotFound {
+                        combined.append(UnifiedPDFSearchResult(
+                            pageIndex: pageIdx,
+                            snippet: sel.string ?? "",
+                            badge: nil,
+                            isHandwritten: false
+                        ))
+                    }
+                }
+            }
+
+            // 2. Handwritten Ink OCR & Annotation notes search
+            let annotations = AnnotationStore.shared.annotations(for: pdf.id)
+            let lowerQuery = query.lowercased()
+            for ann in annotations {
+                if let ocr = ann.drawingOCRText, ocr.lowercased().contains(lowerQuery) {
+                    combined.append(UnifiedPDFSearchResult(
+                        pageIndex: ann.pageIndex,
+                        snippet: ocr,
+                        badge: "PENCIL NOTE",
+                        isHandwritten: true
+                    ))
+                } else if let note = ann.noteText, note.lowercased().contains(lowerQuery) {
+                    combined.append(UnifiedPDFSearchResult(
+                        pageIndex: ann.pageIndex,
+                        snippet: note,
+                        badge: "NOTE",
+                        isHandwritten: false
+                    ))
+                }
+            }
+
+            // Sort results ascending by page number
+            combined.sort(by: { $0.pageIndex < $1.pageIndex })
+
+            await MainActor.run {
+                self.searchResults = matches
+                self.unifiedResults = combined
+                self.isSearching = false
+            }
         }
     }
+}
+
+/// Unified search result item covering PDF vector text, OCR handwriting, and margin notes
+struct UnifiedPDFSearchResult: Identifiable {
+    let id = UUID()
+    let pageIndex: Int
+    let snippet: String
+    let badge: String?
+    let isHandwritten: Bool
 }
 
 /// Recursive Outline Node Row Component for nested PDF Table of Contents

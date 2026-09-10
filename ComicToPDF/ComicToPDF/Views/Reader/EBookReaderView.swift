@@ -802,10 +802,40 @@ struct EBookReaderView: View {
                 (function() {
                     window.getSelection()?.removeAllRanges();
                     var found = window.find('\(safe)', false, false, true, false, false, false);
-                    if (!found) { window.find('\(safe)', false, false, false, false, false, false); }
+                    if (!found) { found = window.find('\(safe)', false, false, false, false, false, false); }
+                    if (!found) return -1;
+                    var sel = window.getSelection();
+                    if (sel && sel.rangeCount > 0) {
+                        var range = sel.getRangeAt(0);
+                        var rect = range.getBoundingClientRect();
+                        var pageStep = (typeof getPageStep === 'function') ? getPageStep() : (window.innerWidth || 1);
+                        var vp = document.getElementById('inksync-viewport') || document.body;
+                        var curTransform = 0;
+                        if (vp) {
+                            var style = window.getComputedStyle(vp);
+                            var matrix = new WebKitCSSMatrix(style.transform);
+                            curTransform = Math.abs(matrix.m41);
+                        }
+                        var absoluteLeft = rect.left + curTransform;
+                        var isMulti = (typeof _isMultiCol !== 'undefined') ? _isMultiCol : false;
+                        var colWidth = isMulti ? (pageStep / 2) : pageStep;
+                        if (colWidth > 0) {
+                            return Math.floor(absoluteLeft / colWidth);
+                        }
+                    }
+                    return -1;
                 })();
                 """
-                wv.evaluateJavaScript(js, completionHandler: nil)
+                wv.evaluateJavaScript(js) { result, _ in
+                    if let col = result as? Int, col >= 0 {
+                        DispatchQueue.main.async {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                self.chapterPage = col
+                            }
+                            self.saveProgress()
+                        }
+                    }
+                }
             }
         } else {
             isGoingForward = chapterIdx >= currentIndex
@@ -880,8 +910,10 @@ struct EBookReaderView: View {
     private func handleCurrentIndexChanged() {
         guard let match = pendingSearchMatch, !match.isEmpty else { return }
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            if let wv = resolveActiveWebView() ?? webViewReference {
+            // Poll for active webview readiness (up to 6 attempts, 150ms apart)
+            for _ in 0..<6 {
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard let wv = resolveActiveWebView() ?? webViewReference else { continue }
                 let safe = match
                     .replacingOccurrences(of: "\\", with: "\\\\")
                     .replacingOccurrences(of: "'", with: "\\'")
@@ -889,12 +921,39 @@ struct EBookReaderView: View {
                 (function() {
                     window.getSelection()?.removeAllRanges();
                     var found = window.find('\(safe)', false, false, true, false, false, false);
-                    if (!found) { window.find('\(safe)', false, false, false, false, false, false); }
+                    if (!found) { found = window.find('\(safe)', false, false, false, false, false, false); }
+                    if (!found) return -1;
+                    var sel = window.getSelection();
+                    if (sel && sel.rangeCount > 0) {
+                        var range = sel.getRangeAt(0);
+                        var rect = range.getBoundingClientRect();
+                        var pageStep = (typeof getPageStep === 'function') ? getPageStep() : (window.innerWidth || 1);
+                        var vp = document.getElementById('inksync-viewport') || document.body;
+                        var curTransform = 0;
+                        if (vp) {
+                            var style = window.getComputedStyle(vp);
+                            var matrix = new WebKitCSSMatrix(style.transform);
+                            curTransform = Math.abs(matrix.m41);
+                        }
+                        var absoluteLeft = rect.left + curTransform;
+                        var isMulti = (typeof _isMultiCol !== 'undefined') ? _isMultiCol : false;
+                        var colWidth = isMulti ? (pageStep / 2) : pageStep;
+                        if (colWidth > 0) {
+                            return Math.floor(absoluteLeft / colWidth);
+                        }
+                    }
+                    return -1;
                 })();
                 """
-                _ = try? await wv.evaluateJavaScript(js)
+                if let res = try? await wv.evaluateJavaScript(js), let col = res as? Int, col >= 0 {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        self.chapterPage = col
+                    }
+                    self.saveProgress()
+                    self.pendingSearchMatch = nil
+                    break
+                }
             }
-            pendingSearchMatch = nil
         }
     }
     
