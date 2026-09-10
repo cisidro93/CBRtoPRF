@@ -1268,7 +1268,7 @@ private func computeColumnCount(for size: CGSize) -> Int {
                             if prefs.paginationMode == EBookPaginationMode.paged.rawValue {
                                 // Native UIPageViewController(.pageCurl) for EPUB paged mode
                                 EBookPageCurlReader(
-                                    spineItem: EBookMetadata.SpineItem(id: "ch_\(vm.currentChapterIndex)", href: vm.chapterHtmlFiles[safe: vm.currentChapterIndex]?.lastPathComponent ?? "", title: vm.tocItems[safe: vm.currentChapterIndex]?.label.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)),
+                                    spineItem: currentCurlSpineItem,
                                     unzipDir: vm.unzipDir,
                                     prefs: prefs,
                                     colorScheme: colorScheme,
@@ -1276,40 +1276,16 @@ private func computeColumnCount(for size: CGSize) -> Int {
                                     initialPage: chapterPage,
                                     totalPages: $chapterTotalPages,
                                     startAtEndOfChapter: scrollToLastPageOnLoad,
-                                    onNext: {
-                                        let lastIdx = vm.chapterHtmlFiles.count - 1
-                                        if vm.currentChapterIndex >= lastIdx {
-                                            attemptBookSeriesContinuation()
-                                        } else {
-                                            scrollToLastPageOnLoad = false
-                                            initialScrollFraction = 0.0
-                                            chapterPage = 0
-                                            vm.loadChapter(index: min(lastIdx, vm.currentChapterIndex + 1))
-                                        }
-                                    },
-                                    onPrev: {
-                                        scrollToLastPageOnLoad = true
-                                        initialScrollFraction = 1.0
-                                        chapterPage = 0
-                                        vm.loadChapter(index: max(0, vm.currentChapterIndex - 1))
-                                    },
+                                    onNext: handleNextChapter,
+                                    onPrev: handlePrevChapter,
                                     onCenterTap: { chromeVisible.toggle() },
                                     onHighlightCreated: { selectedText in
                                         recordHighlight(selectedText: selectedText, hexColor: "#FFD600")
                                     },
-                                    onHighlightTapped: { tappedText in
-                                        if let sdMatch = findMatchingAnnotation(tappedText: tappedText) {
-                                            withAnimation(.easeInOut(duration: 0.18)) {
-                                                activeHighlightToEdit = sdMatch
-                                            }
-                                        }
-                                    },
+                                    onHighlightTapped: handleHighlightTapped,
                                     pdfID: pdf.id,
                                     initialScrollFraction: initialScrollFraction,
-                                    onScrollFractionChanged: { fraction in
-                                        chapterScrollFraction = fraction
-                                        saveProgress()
-                                    },
+                                    onScrollFractionChanged: handleScrollFractionChanged,
                                     webViewRef: $webViewReference,
                                     onFootnoteTapped: { text in
                                         activeFootnoteText = text
@@ -1324,10 +1300,7 @@ private func computeColumnCount(for size: CGSize) -> Int {
                                     prefs: EBookPreferences.shared,
                                     scrollToLastPageOnLoad: $scrollToLastPageOnLoad,
                                     initialScrollFraction: initialScrollFraction,
-                                    onScrollFractionChanged: { fraction in
-                                        chapterScrollFraction = fraction
-                                        saveProgress()
-                                    },
+                                    onScrollFractionChanged: handleScrollFractionChanged,
                                     webViewRef: $webViewReference,
                                     pdf: pdf,
                                     currentPage: $chapterPage,
@@ -1335,39 +1308,12 @@ private func computeColumnCount(for size: CGSize) -> Int {
                                     onHighlightCreated: { selectedText, _ in
                                         recordHighlight(selectedText: selectedText, hexColor: "#FFD600")
                                     },
-                                    onPageLoaded: { webView in
-                                        self.webViewReference = webView
-                                        let pageAnnotations = AnnotationStore.shared.annotations(for: pdf.id).filter { $0.pageIndex == vm.currentChapterIndex && $0.kind == .highlight }
-                                        for ann in pageAnnotations {
-                                            if let text = ann.selectedText, let color = ann.colorHex {
-                                                let safeText = text.replacingOccurrences(of: "`", with: "\\`")
-                                                                   .replacingOccurrences(of: "\"", with: "\\\"")
-                                                                   .replacingOccurrences(of: "\n", with: " ")
-                                                let js = "window.restoreInksyncHighlight(`\(safeText)`, '\(color)');"
-                                                webView.evaluateJavaScript(js)
-                                            }
-                                        }
-                                    },
+                                    onPageLoaded: handlePageLoaded,
                                     onCenterTap: { chromeVisible.toggle() },
                                     onLeftTap: { if isMangaMode { pageForward() } else { pageBackward() } },
                                     onRightTap: { if isMangaMode { pageBackward() } else { pageForward() } },
-                                    onNextChapter: {
-                                        let lastIdx = vm.chapterHtmlFiles.count - 1
-                                        if vm.currentChapterIndex >= lastIdx {
-                                            attemptBookSeriesContinuation()
-                                        } else {
-                                            scrollToLastPageOnLoad = false
-                                            initialScrollFraction = 0.0
-                                            chapterPage = 0
-                                            vm.loadChapter(index: min(lastIdx, vm.currentChapterIndex + 1))
-                                        }
-                                    },
-                                    onPrevChapter: {
-                                        scrollToLastPageOnLoad = true
-                                        initialScrollFraction = 1.0
-                                        chapterPage = 0
-                                        vm.loadChapter(index: max(0, vm.currentChapterIndex - 1))
-                                    }
+                                    onNextChapter: handleNextChapter,
+                                    onPrevChapter: handlePrevChapter
                                 )
                                 .ignoresSafeArea()
                                 .id("epub_chapter_\(vm.currentChapterIndex)")
@@ -1704,6 +1650,60 @@ private func computeColumnCount(for size: CGSize) -> Int {
         modelContext.insert(sdAnnotation)
         try? modelContext.save()
         self.activeHighlightToEdit = sdAnnotation
+    }
+
+    private var currentCurlSpineItem: EBookMetadata.SpineItem {
+        let chIdx = vm.currentChapterIndex
+        let href = vm.chapterHtmlFiles[safe: chIdx]?.lastPathComponent ?? ""
+        let rawTitle = vm.tocItems[safe: chIdx]?.label
+        let cleanTitle = rawTitle?.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        return EBookMetadata.SpineItem(id: "ch_\(chIdx)", href: href, title: cleanTitle)
+    }
+
+    private func handleNextChapter() {
+        let lastIdx = vm.chapterHtmlFiles.count - 1
+        if vm.currentChapterIndex >= lastIdx {
+            attemptBookSeriesContinuation()
+        } else {
+            scrollToLastPageOnLoad = false
+            initialScrollFraction = 0.0
+            chapterPage = 0
+            vm.loadChapter(index: min(lastIdx, vm.currentChapterIndex + 1))
+        }
+    }
+
+    private func handlePrevChapter() {
+        scrollToLastPageOnLoad = true
+        initialScrollFraction = 1.0
+        chapterPage = 0
+        vm.loadChapter(index: max(0, vm.currentChapterIndex - 1))
+    }
+
+    private func handleHighlightTapped(_ tappedText: String) {
+        if let sdMatch = findMatchingAnnotation(tappedText: tappedText) {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                activeHighlightToEdit = sdMatch
+            }
+        }
+    }
+
+    private func handleScrollFractionChanged(_ fraction: Double) {
+        chapterScrollFraction = fraction
+        saveProgress()
+    }
+
+    private func handlePageLoaded(_ webView: WKWebView) {
+        self.webViewReference = webView
+        let pageAnnotations = AnnotationStore.shared.annotations(for: pdf.id).filter { $0.pageIndex == vm.currentChapterIndex && $0.kind == .highlight }
+        for ann in pageAnnotations {
+            if let text = ann.selectedText, let color = ann.colorHex {
+                let safeText = text.replacingOccurrences(of: "`", with: "\\`")
+                                   .replacingOccurrences(of: "\"", with: "\\\"")
+                                   .replacingOccurrences(of: "\n", with: " ")
+                let js = "window.restoreInksyncHighlight(`\(safeText)`, '\(color)');"
+                webView.evaluateJavaScript(js)
+            }
+        }
     }
 
     private func findMatchingAnnotation(tappedText: String) -> SDAnnotation? {
