@@ -45,6 +45,27 @@ struct StudyNotebookView: View {
         Logger.shared.log("Smart Notebook: Jumped open reader to page \(pageIndex + 1)", category: "Notebook", type: .info)
     }
 
+    private func jumpToHighlight(_ highlight: SDAnnotation) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        var info: [String: Any] = [
+            "pageIndex": highlight.pageIndex,
+            "chapterPage": highlight.pageIndex,
+            "page": highlight.pageIndex
+        ]
+        if let chap = highlight.chapterTitle {
+            info["chapterTitle"] = chap
+        }
+        if let text = highlight.selectedText {
+            info["selectedText"] = text
+        }
+        NotificationCenter.default.post(
+            name: .readerJumpToPage,
+            object: nil,
+            userInfo: info
+        )
+        Logger.shared.log("Smart Notebook: Jumped open reader to highlight on page \(highlight.pageIndex + 1)", category: "Notebook", type: .info)
+    }
+
     private func stampCurrentPageLink() {
         guard let pageIdx = activeReaderPageIndex else { return }
         let displayPage = pageIdx + 1
@@ -164,6 +185,8 @@ struct StudyNotebookView: View {
     @State private var highlightSearchQuery = ""
     @State private var highlightSortNewest = true
     @State private var selectedTagFilter: String? = nil
+    @State private var selectedColorFilter: String? = nil
+    @State private var copiedHighlightID: UUID? = nil
     @State private var activeHighlightToEdit: SDAnnotation? = nil
     @State private var highlightPendingDelete: SDAnnotation? = nil
     @State private var showDeleteHighlightAlert: Bool = false
@@ -618,35 +641,37 @@ struct StudyNotebookView: View {
                     .overlay(Rectangle().frame(height: 1).foregroundColor(Color.primary.opacity(0.05)), alignment: .bottom)
                     
                     // ── Multi-Modal System Selector Bar (Zettelkasten / Cornell / PARA / Marginalia) ──
-                    HStack(spacing: 6) {
-                        ForEach(NoteTakingSystem.allCases) { sys in
-                            Button {
-                                HapticEngine.light()
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
-                                    noteSystem = sys
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(NoteTakingSystem.allCases) { sys in
+                                Button {
+                                    HapticEngine.light()
+                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+                                        noteSystem = sys
+                                    }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: sys.icon)
+                                            .font(.system(size: 10, weight: .bold))
+                                        Text(sys.rawValue)
+                                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                                    }
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .foregroundColor(noteSystem == sys ? .white : Theme.textSecondary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        noteSystem == sys
+                                            ? AnyShapeStyle(Color(hex: "#7B5EA7"))
+                                            : AnyShapeStyle(Color.primary.opacity(0.05))
+                                    )
+                                    .clipShape(Capsule())
                                 }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: sys.icon)
-                                        .font(.system(size: 10, weight: .bold))
-                                    Text(sys.rawValue)
-                                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                                }
-                                .foregroundColor(noteSystem == sys ? .white : Theme.textSecondary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(
-                                    noteSystem == sys
-                                        ? AnyShapeStyle(Color(hex: "#7B5EA7"))
-                                        : AnyShapeStyle(Color.primary.opacity(0.05))
-                                )
-                                .clipShape(Capsule())
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
-                        Spacer()
+                        .padding(.horizontal, 12)
                     }
-                    .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(Color.primary.opacity(0.02))
                     .overlay(Rectangle().frame(height: 0.5).foregroundColor(Color.primary.opacity(0.05)), alignment: .bottom)
@@ -1056,10 +1081,18 @@ struct StudyNotebookView: View {
         return Array(Set(all)).sorted()
     }
 
+    private var allColorsInHighlights: [String] {
+        let all = bookHighlights.compactMap { $0.colorHex }
+        return Array(Set(all)).sorted()
+    }
+
     private var filteredHighlights: [SDAnnotation] {
         var h = bookHighlights
         if let filter = selectedTagFilter {
             h = h.filter { $0.tags?.contains(filter) ?? false }
+        }
+        if let colorFilter = selectedColorFilter {
+            h = h.filter { ($0.colorHex ?? "").localizedCaseInsensitiveContains(colorFilter) }
         }
         if !highlightSearchQuery.isEmpty {
             h = h.filter { $0.selectedText?.localizedCaseInsensitiveContains(highlightSearchQuery) ?? false }
@@ -1477,6 +1510,49 @@ struct StudyNotebookView: View {
                     .background(Color.primary.opacity(0.06))
                     .cornerRadius(6)
                     
+                    // Color filters row
+                    let availableColors = ["#FFD60A", "#30D158", "#0A84FF", "#FF375F", "#FF9F0A", "#BF5AF2"]
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            Button {
+                                withAnimation { selectedColorFilter = nil }
+                            } label: {
+                                Text("All Colors")
+                                    .font(.system(size: 9, weight: selectedColorFilter == nil ? .bold : .medium))
+                                    .foregroundColor(selectedColorFilter == nil ? .white : .primary)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(selectedColorFilter == nil ? Theme.blue : Color.primary.opacity(0.06), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            
+                            ForEach(availableColors, id: \.self) { hex in
+                                Button {
+                                    withAnimation {
+                                        if selectedColorFilter == hex {
+                                            selectedColorFilter = nil
+                                        } else {
+                                            selectedColorFilter = hex
+                                        }
+                                    }
+                                } label: {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color(hex: hex))
+                                            .frame(width: 16, height: 16)
+                                        if selectedColorFilter == hex {
+                                            Circle()
+                                                .stroke(Color.white, lineWidth: 2)
+                                                .frame(width: 18, height: 18)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+
                     // Tag filters scroll list
                     let tagsList = allTagsInHighlights
                     if !tagsList.isEmpty {
@@ -1485,7 +1561,7 @@ struct StudyNotebookView: View {
                                 Button {
                                     withAnimation { selectedTagFilter = nil }
                                 } label: {
-                                    Text("All")
+                                    Text("All Tags")
                                         .font(.system(size: 10, weight: selectedTagFilter == nil ? .bold : .regular))
                                         .foregroundColor(selectedTagFilter == nil ? .white : .primary)
                                         .padding(.horizontal, 8)
@@ -1510,6 +1586,7 @@ struct StudyNotebookView: View {
                                             .padding(.horizontal, 8)
                                             .padding(.vertical, 4)
                                             .background(selectedTagFilter == tag ? Theme.blue : Theme.blue.opacity(0.1), in: Capsule())
+                                            .fixedSize(horizontal: true, vertical: false)
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -1554,17 +1631,39 @@ struct StudyNotebookView: View {
                         } else {
                             ForEach(matches) { highlight in
                                 VStack(alignment: .leading, spacing: 8) {
-                                    // Header: Page Index
+                                    // Header: Page Index with Jump Navigation & Chapter
                                     HStack {
-                                        Text("Page \(highlight.pageIndex + 1)")
-                                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                            .foregroundColor(.secondary)
+                                        Button {
+                                            jumpToHighlight(highlight)
+                                        } label: {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "arrow.right.circle.fill")
+                                                    .font(.system(size: 9))
+                                                Text("Page \(highlight.pageIndex + 1)")
+                                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                            }
+                                            .foregroundColor(Theme.blue)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Theme.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                                        }
+                                        .buttonStyle(.plain)
+                                        
+                                        if let chap = highlight.chapterTitle, !chap.isEmpty {
+                                            Text(chap)
+                                                .font(.system(size: 9, weight: .medium))
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                        }
+                                        
                                         Spacer()
                                         
                                         let accentColor = Color(hex: highlight.colorHex ?? "#FFD60A")
                                         Circle()
                                             .fill(accentColor)
-                                            .frame(width: 6, height: 6)
+                                            .frame(width: 8, height: 8)
+                                            .shadow(color: accentColor.opacity(0.6), radius: 2)
                                     }
                                     
                                     // Quote highlighted text
@@ -1611,22 +1710,26 @@ struct StudyNotebookView: View {
                                             .cornerRadius(4)
                                     }
                                     
-                                    // Tags list
+                                    // Tags list (horizontally scrollable chips with fixed size to prevent vertical squishing)
                                     if let tags = highlight.tags, !tags.isEmpty {
-                                        HStack(spacing: 4) {
-                                            ForEach(tags, id: \.self) { tag in
-                                                Text("#\(tag)")
-                                                    .font(.system(size: 8, weight: .bold))
-                                                    .foregroundColor(Theme.blue)
-                                                    .padding(.horizontal, 5)
-                                                    .padding(.vertical, 1.5)
-                                                    .background(Theme.blue.opacity(0.1), in: Capsule())
+                                        ScrollView(.horizontal, showsIndicators: false) {
+                                            HStack(spacing: 5) {
+                                                ForEach(tags, id: \.self) { tag in
+                                                    Text("#\(tag)")
+                                                        .font(.system(size: 9, weight: .bold))
+                                                        .foregroundColor(Theme.blue)
+                                                        .padding(.horizontal, 6)
+                                                        .padding(.vertical, 2.5)
+                                                        .background(Theme.blue.opacity(0.12), in: Capsule())
+                                                        .fixedSize(horizontal: true, vertical: false)
+                                                }
                                             }
+                                            .padding(.vertical, 2)
                                         }
                                     }
                                     
                                     // Action buttons
-                                    HStack {
+                                    HStack(spacing: 8) {
                                         Button {
                                             insertHighlightIntoNote(highlight)
                                         } label: {
@@ -1638,6 +1741,29 @@ struct StudyNotebookView: View {
                                             .foregroundColor(Theme.blue)
                                         }
                                         .buttonStyle(.borderless)
+                                        
+                                        if let text = highlight.selectedText, !text.isEmpty {
+                                            Button {
+                                                UIPasteboard.general.string = text
+                                                HapticEngine.selection()
+                                                withAnimation { copiedHighlightID = highlight.id }
+                                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                                    withAnimation {
+                                                        if copiedHighlightID == highlight.id {
+                                                            copiedHighlightID = nil
+                                                        }
+                                                    }
+                                                }
+                                            } label: {
+                                                HStack(spacing: 3) {
+                                                    Image(systemName: copiedHighlightID == highlight.id ? "checkmark" : "doc.on.doc")
+                                                    Text(copiedHighlightID == highlight.id ? "Copied" : "Copy")
+                                                }
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundColor(copiedHighlightID == highlight.id ? .green : .secondary)
+                                            }
+                                            .buttonStyle(.borderless)
+                                        }
                                         
                                         Spacer()
                                         

@@ -817,23 +817,38 @@ struct EBookReaderView: View {
     }
 
     private func handleReaderJumpToPage(_ notification: Notification) {
-        guard let pageIndex = notification.userInfo?["pageIndex"] as? Int, pageIndex >= 0, pageIndex < totalChapters else { return }
-        let fromIndex = currentIndex
-        if abs(pageIndex - fromIndex) > 0 {
-            ReadingJumpTracker.shared.recordJump(fromPage: fromIndex, toPage: pageIndex) {
+        // 1. If chapterTitle is specified, locate and jump to that chapter
+        if let targetChapter = notification.userInfo?["chapterTitle"] as? String,
+           let meta = metadata,
+           let chapterIdx = meta.spineItems.firstIndex(where: {
+               ($0.title ?? "").localizedCaseInsensitiveContains(targetChapter) ||
+               targetChapter.localizedCaseInsensitiveContains($0.title ?? "")
+           }) {
+            if chapterIdx != currentIndex {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                    isGoingForward = fromIndex >= currentIndex
-                    currentIndex = fromIndex
+                    isGoingForward = chapterIdx >= currentIndex
+                    currentIndex = chapterIdx
+                }
+            }
+        }
+
+        // 2. Navigate to specific page within chapter or whole chapter
+        if let targetPage = notification.userInfo?["chapterPage"] as? Int ?? notification.userInfo?["pageIndex"] as? Int {
+            if targetPage < chapterTotalPages {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    chapterPage = max(0, targetPage)
+                }
+                let activeWV = resolveActiveWebView() ?? webViewReference
+                activeWV?.evaluateJavaScript("if(window.goToInksyncPage) window.goToInksyncPage(\(targetPage), false);")
+                saveProgress()
+            } else if targetPage < totalChapters && notification.userInfo?["chapterPage"] == nil {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    isGoingForward = targetPage >= currentIndex
+                    currentIndex = targetPage
                     chapterPage = 0
                     saveProgress()
                 }
             }
-        }
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            isGoingForward = pageIndex >= currentIndex
-            currentIndex = pageIndex
-            chapterPage = 0
-            saveProgress()
         }
     }
 

@@ -541,7 +541,10 @@ extension EBookPageCurlReader {
                 }
             }
 
-            pvc.setViewControllers(safeVCs, direction: direction, animated: animated, completion: completion)
+            pvc.setViewControllers(safeVCs, direction: direction, animated: animated) { [weak self] finished in
+                self?.mountPrimaryWebViewOnRoot()
+                completion?(finished)
+            }
         }
 
 
@@ -1183,11 +1186,17 @@ extension EBookPageCurlReader {
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
                 .replacingOccurrences(of: "\n", with: " ")
+            let isDark = parent.prefs.activeTheme.isDark
+            let themeBg = parent.prefs.activeTheme.cssBackground
+            let themeText = parent.prefs.activeTheme.cssText
             let js = """
             (function() {
                 var currentFrac = \(frac);
                 var el = document.getElementById('__inksync_live__');
                 if (el) { el.innerHTML = `\(safeCSS)`; }
+                if (window.updateAllInksyncHighlights) {
+                    window.updateAllInksyncHighlights(\(isDark ? "true" : "false"), '\(themeBg)', '\(themeText)');
+                }
                 if (window.computeMetrics) {
                     var newTotal = computeMetrics();
                     if (newTotal > 1 && currentFrac > 0.0) {
@@ -1355,7 +1364,7 @@ extension EBookPageCurlReader {
             let paraIndent = prefs.paragraphIndent
             let isDarkTheme = prefs.activeTheme.isDark
             let defaultBlendMode = isDarkTheme ? "normal" : "multiply"
-            let defaultHighlightBg = isDarkTheme ? "rgba(255, 214, 10, 0.38)" : "rgba(255, 214, 10, 0.45)"
+            let defaultHighlightBg = isDarkTheme ? "rgba(255, 214, 10, 0.52)" : "rgba(255, 214, 10, 0.45)"
             let hyphenCSS = prefs.hyphenation ? "auto" : "manual"
 
             let renderWidth = size.width > 0 ? size.width : UIScreen.main.bounds.width
@@ -1383,7 +1392,7 @@ extension EBookPageCurlReader {
             let safeTop = max(safeArea.top, 24.0)
             let safeBottom = max(safeArea.bottom, 20.0)
             let paddingTop = safeTop + max(20.0, prefs.textMarginTop)
-            let paddingBottom = safeBottom + max(36.0, prefs.textMarginBottom)
+            let paddingBottom = safeBottom + max(52.0, prefs.textMarginBottom + 24.0)
             let paddingLeft = max(16.0, prefs.textMargin)
             let paddingRight = max(16.0, prefs.textMargin)
 
@@ -1431,8 +1440,9 @@ extension EBookPageCurlReader {
                 box-decoration-break: clone !important;
                 -webkit-box-decoration-break: clone !important;
                 cursor: pointer !important;
-                mix-blend-mode: \(defaultBlendMode);
-                transition: opacity 0.15s ease, filter 0.15s ease !important;
+                mix-blend-mode: \(defaultBlendMode) !important;
+                \(isDarkTheme ? "border-bottom: 2px solid rgba(255, 214, 10, 0.9) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85) !important;" : "border-bottom: none !important; text-shadow: none !important;")
+                transition: opacity 0.15s ease, filter 0.15s ease, background-color 0.2s ease !important;
             }
             mark.inksync-highlight:active {
                 filter: brightness(0.88) !important;
@@ -1492,14 +1502,21 @@ extension EBookPageCurlReader {
                 padding-bottom: \(paddingBottom)px !important;
                 padding-left: \(paddingLeft)px !important;
                 padding-right: \(paddingRight)px !important;
-                width: 100% !important;
+                width: auto !important;
+                max-width: none !important;
                 height: 100% !important;
                 max-height: 100% !important;
-                overflow: hidden !important;
+                overflow: visible !important;
                 -webkit-user-select: text !important;
                 user-select: text !important;
                 \(pagedCSS)
                 /* No CSS transition — column jumps are instantaneous; animation belongs to UIPageViewController curl. */
+            }
+            #inksync-viewport p, #inksync-viewport div, #inksync-viewport section, #inksync-viewport article, #inksync-viewport blockquote, #inksync-viewport li {
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+                orphans: 2 !important;
+                widows: 2 !important;
             }
             #inksync-viewport *, body * {
                 max-width: 100% !important;
@@ -1592,6 +1609,12 @@ extension EBookPageCurlReader {
                     vp.style.transform = 'translate3d(-' + shift + 'px, 0, 0)';
                     vp.style.webkitTransform = 'translate3d(-' + shift + 'px, 0, 0)';
                 }
+                try {
+                    if (document.scrollingElement) {
+                        document.scrollingElement.scrollLeft = 0;
+                        document.scrollingElement.scrollTop = 0;
+                    }
+                } catch(e) {}
             }
 
             applyPagePosition(false);
@@ -1741,6 +1764,59 @@ extension EBookPageCurlReader {
                 return hex;
             }
 
+            function styleHighlightMark(mark, colorHex, style, symbol) {
+                if (style) mark.setAttribute('data-style', style);
+                if (colorHex) mark.setAttribute('data-color', colorHex);
+                if (symbol) mark.setAttribute('data-symbol', symbol);
+                
+                var col = colorHex || '#FFD600';
+                var st = style || 'highlight';
+                var bgAlpha = _isDarkTheme ? 0.52 : 0.40;
+                var highlightBg = hexToRgba(col, bgAlpha);
+                
+                if (st === 'underline') {
+                    mark.style.setProperty('background-color', 'transparent', 'important');
+                    mark.style.setProperty('text-decoration', 'underline', 'important');
+                    mark.style.setProperty('text-decoration-color', col, 'important');
+                    mark.style.setProperty('text-underline-offset', '3px', 'important');
+                    mark.style.setProperty('mix-blend-mode', 'normal', 'important');
+                    mark.style.setProperty('border-bottom', 'none', 'important');
+                    mark.style.setProperty('text-shadow', 'none', 'important');
+                } else if (st === 'strikeout') {
+                    mark.style.setProperty('background-color', 'transparent', 'important');
+                    mark.style.setProperty('text-decoration', 'line-through', 'important');
+                    mark.style.setProperty('text-decoration-color', col, 'important');
+                    mark.style.setProperty('mix-blend-mode', 'normal', 'important');
+                    mark.style.setProperty('border-bottom', 'none', 'important');
+                    mark.style.setProperty('text-shadow', 'none', 'important');
+                } else {
+                    mark.style.setProperty('background-color', highlightBg, 'important');
+                    mark.style.setProperty('text-decoration', 'none', 'important');
+                    if (_isDarkTheme) {
+                        mark.style.setProperty('mix-blend-mode', 'normal', 'important');
+                        mark.style.setProperty('border-bottom', '2px solid ' + col, 'important');
+                        mark.style.setProperty('text-shadow', '0 1px 2px rgba(0,0,0,0.85)', 'important');
+                    } else {
+                        mark.style.setProperty('mix-blend-mode', 'multiply', 'important');
+                        mark.style.setProperty('border-bottom', 'none', 'important');
+                        mark.style.setProperty('text-shadow', 'none', 'important');
+                    }
+                }
+                mark.style.setProperty('color', 'inherit', 'important');
+                mark.style.setProperty('border-radius', '3px', 'important');
+                mark.style.setProperty('padding', '1px 2px', 'important');
+                mark.style.setProperty('-webkit-box-decoration-break', 'clone', 'important');
+                mark.style.setProperty('box-decoration-break', 'clone', 'important');
+            }
+
+            window.createHighlightElement = function(id, colorHex, symbol, style) {
+                var mark = document.createElement('mark');
+                mark.className = 'inksync-highlight';
+                if (id) mark.setAttribute('data-id', id);
+                styleHighlightMark(mark, colorHex, style, symbol);
+                return mark;
+            };
+
             window.applyInksyncHighlight = function(id, colorHex, symbol, style) {
                 if (typeof id === 'string' && id.indexOf('#') === 0) {
                     style = symbol;
@@ -1759,30 +1835,8 @@ extension EBookPageCurlReader {
                 var text = (sel && !sel.isCollapsed) ? sel.toString().trim() : (range.toString ? range.toString().trim() : "");
                 if (!text && window.__lastSelectedText) text = window.__lastSelectedText;
                 if (!text) return "";
-                var mark = document.createElement('mark');
-                mark.className = 'inksync-highlight';
-                if (id) mark.setAttribute('data-id', id);
-                if (style) mark.setAttribute('data-style', style);
-                var bgAlpha = _isDarkTheme ? 0.38 : 0.42;
-                var highlightBg = hexToRgba(colorHex || '#FFD600', bgAlpha);
-                if (style === 'underline') {
-                    mark.style.setProperty('background-color', 'transparent', 'important');
-                    mark.style.setProperty('text-decoration', 'underline', 'important');
-                    mark.style.setProperty('text-decoration-color', colorHex || '#FF9100', 'important');
-                    mark.style.setProperty('text-underline-offset', '3px', 'important');
-                } else if (style === 'strikeout') {
-                    mark.style.setProperty('background-color', 'transparent', 'important');
-                    mark.style.setProperty('text-decoration', 'line-through', 'important');
-                    mark.style.setProperty('text-decoration-color', colorHex || '#FF4081', 'important');
-                } else {
-                    mark.style.setProperty('background-color', highlightBg, 'important');
-                    mark.style.mixBlendMode = _isDarkTheme ? 'normal' : 'multiply';
-                }
-                mark.style.color = 'inherit';
-                mark.style.borderRadius = '3px';
-                if (symbol) {
-                    mark.setAttribute('data-symbol', symbol);
-                }
+                
+                var mark = window.createHighlightElement(id, colorHex, symbol, style);
                 try {
                     range.surroundContents(mark);
                 } catch(e) {
@@ -1795,24 +1849,7 @@ extension EBookPageCurlReader {
                         var textNode;
                         while ((textNode = walker.nextNode())) {
                             if (range.intersectsNode(textNode)) {
-                                var subMark = document.createElement('mark');
-                                subMark.className = 'inksync-highlight';
-                                if (id) subMark.setAttribute('data-id', id);
-                                if (style) subMark.setAttribute('data-style', style);
-                                if (style === 'underline') {
-                                    subMark.style.setProperty('background-color', 'transparent', 'important');
-                                    subMark.style.setProperty('text-decoration', 'underline', 'important');
-                                    subMark.style.setProperty('text-decoration-color', colorHex || '#FF9100', 'important');
-                                    subMark.style.setProperty('text-underline-offset', '3px', 'important');
-                                } else if (style === 'strikeout') {
-                                    subMark.style.setProperty('background-color', 'transparent', 'important');
-                                    subMark.style.setProperty('text-decoration', 'line-through', 'important');
-                                    subMark.style.setProperty('text-decoration-color', colorHex || '#FF4081', 'important');
-                                } else {
-                                    subMark.style.setProperty('background-color', highlightBg, 'important');
-                                    subMark.style.mixBlendMode = _isDarkTheme ? 'normal' : 'multiply';
-                                }
-                                if (symbol) subMark.setAttribute('data-symbol', symbol);
+                                var subMark = window.createHighlightElement(id, colorHex, symbol, style);
                                 var startOffset = (textNode === range.startContainer) ? range.startOffset : 0;
                                 var endOffset = (textNode === range.endContainer) ? range.endOffset : textNode.nodeValue.length;
                                 var subRange = document.createRange();
@@ -1844,17 +1881,23 @@ extension EBookPageCurlReader {
                         }
                     }
                 }
-                var bgAlpha = _isDarkTheme ? 0.38 : 0.42;
-                var highlightBg = hexToRgba(newColorHex || '#FFD600', bgAlpha);
                 for (var j = 0; j < targetMarks.length; j++) {
                     var m = targetMarks[j];
-                    var st = m.getAttribute('data-style');
-                    if (st === 'underline' || st === 'strikeout') {
-                        m.style.setProperty('text-decoration-color', newColorHex || '#FF9100', 'important');
-                    } else {
-                        m.style.setProperty('background-color', highlightBg, 'important');
-                        m.style.mixBlendMode = _isDarkTheme ? 'normal' : 'multiply';
-                    }
+                    var st = m.getAttribute('data-style') || 'highlight';
+                    var sym = m.getAttribute('data-symbol');
+                    styleHighlightMark(m, newColorHex, st, sym);
+                }
+            };
+
+            window.updateAllInksyncHighlights = function(isDark, themeBg, themeText) {
+                _isDarkTheme = (isDark === true || isDark === 'true');
+                var marks = document.querySelectorAll('mark.inksync-highlight');
+                for (var i = 0; i < marks.length; i++) {
+                    var m = marks[i];
+                    var col = m.getAttribute('data-color') || '#FFD600';
+                    var st = m.getAttribute('data-style') || 'highlight';
+                    var sym = m.getAttribute('data-symbol');
+                    styleHighlightMark(m, col, st, sym);
                 }
             };
 
@@ -1887,52 +1930,91 @@ extension EBookPageCurlReader {
 
             window.restoreInksyncHighlight = function(id, textToFind, colorHex, symbol, style) {
                 if (!textToFind) return;
-                var trimmed = textToFind.trim();
+                var target = textToFind.trim();
+                if (!target) return;
+                
+                var normTarget = target.replace(/[—–]/g, '-').replace(/\\s+/g, ' ');
                 var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
                 var node;
+                var nodeOffsets = [];
+                var fullDocText = '';
+                
                 while ((node = walker.nextNode())) {
                     if (node.parentElement && node.parentElement.closest && node.parentElement.closest('mark.inksync-highlight')) {
                         continue;
                     }
                     var val = node.nodeValue;
-                    var idx = val.indexOf(textToFind);
-                    var matchLen = textToFind.length;
-                    if (idx === -1 && trimmed !== textToFind) {
-                        idx = val.indexOf(trimmed);
-                        matchLen = trimmed.length;
+                    var sIdx = val.indexOf(textToFind);
+                    if (sIdx === -1 && val.indexOf(target) !== -1) {
+                        sIdx = val.indexOf(target);
                     }
-                    if (idx !== -1) {
+                    if (sIdx !== -1) {
                         try {
-                            var range = document.createRange();
-                            range.setStart(node, idx);
-                            range.setEnd(node, idx + matchLen);
-                            var mark = document.createElement('mark');
-                            mark.className = 'inksync-highlight';
-                            if (id) mark.setAttribute('data-id', id);
-                            if (style) mark.setAttribute('data-style', style);
-                            var bgAlpha = _isDarkTheme ? 0.38 : 0.42;
-                            var highlightBg = hexToRgba(colorHex || '#FFD600', bgAlpha);
-                            if (style === 'underline') {
-                                mark.style.setProperty('background-color', 'transparent', 'important');
-                                mark.style.setProperty('text-decoration', 'underline', 'important');
-                                mark.style.setProperty('text-decoration-color', colorHex || '#FF9100', 'important');
-                                mark.style.setProperty('text-underline-offset', '3px', 'important');
-                            } else if (style === 'strikeout') {
-                                mark.style.setProperty('background-color', 'transparent', 'important');
-                                mark.style.setProperty('text-decoration', 'line-through', 'important');
-                                mark.style.setProperty('text-decoration-color', colorHex || '#FF4081', 'important');
-                            } else {
-                                mark.style.setProperty('background-color', highlightBg, 'important');
-                                mark.style.mixBlendMode = _isDarkTheme ? 'normal' : 'multiply';
-                            }
-                            mark.style.color = 'inherit';
-                            mark.style.borderRadius = '3px';
-                            if (symbol) {
-                                mark.setAttribute('data-symbol', symbol);
-                            }
-                            range.surroundContents(mark);
+                            var r = document.createRange();
+                            r.setStart(node, sIdx);
+                            r.setEnd(node, sIdx + target.length);
+                            var m = window.createHighlightElement(id, colorHex, symbol, style);
+                            r.surroundContents(m);
+                            return;
                         } catch(e) {}
-                        break;
+                    }
+                    nodeOffsets.push({ node: node, start: fullDocText.length, length: val.length });
+                    fullDocText += val;
+                }
+                
+                var normDoc = fullDocText.replace(/[—–]/g, '-').replace(/\\s+/g, ' ');
+                var matchIdx = normDoc.indexOf(normTarget);
+                if (matchIdx === -1) matchIdx = fullDocText.indexOf(target);
+                if (matchIdx === -1 && normTarget.length > 30) {
+                    matchIdx = normDoc.indexOf(normTarget.substring(0, 30));
+                }
+                if (matchIdx !== -1) {
+                    var matchLen = Math.min(normTarget.length, fullDocText.length - matchIdx);
+                    var matchEnd = matchIdx + matchLen;
+                    var startN = null, startO = 0;
+                    var endN = null, endO = 0;
+                    for (var k = 0; k < nodeOffsets.length; k++) {
+                        var no = nodeOffsets[k];
+                        if (!startN && matchIdx >= no.start && matchIdx < no.start + no.length) {
+                            startN = no.node;
+                            startO = matchIdx - no.start;
+                        }
+                        if (matchEnd > no.start && matchEnd <= no.start + no.length) {
+                            endN = no.node;
+                            endO = matchEnd - no.start;
+                            break;
+                        }
+                    }
+                    if (startN && !endN && nodeOffsets.length > 0) {
+                        endN = nodeOffsets[nodeOffsets.length - 1].node;
+                        endO = endN.nodeValue.length;
+                    }
+                    if (startN && endN) {
+                        try {
+                            var mr = document.createRange();
+                            mr.setStart(startN, Math.min(startO, startN.nodeValue.length));
+                            mr.setEnd(endN, Math.min(endO, endN.nodeValue.length));
+                            var wrap = window.createHighlightElement(id, colorHex, symbol, style);
+                            try {
+                                mr.surroundContents(wrap);
+                            } catch(err) {
+                                var tw = document.createTreeWalker(mr.commonAncestorContainer, NodeFilter.SHOW_TEXT, null, false);
+                                var tn;
+                                while ((tn = tw.nextNode())) {
+                                    if (mr.intersectsNode(tn)) {
+                                        var so = (tn === mr.startContainer) ? mr.startOffset : 0;
+                                        var eo = (tn === mr.endContainer) ? mr.endOffset : tn.nodeValue.length;
+                                        if (so < eo) {
+                                            var sr = document.createRange();
+                                            sr.setStart(tn, so);
+                                            sr.setEnd(tn, eo);
+                                            var sm = window.createHighlightElement(id, colorHex, symbol, style);
+                                            try { sr.surroundContents(sm); } catch(x) {}
+                                        }
+                                    }
+                                }
+                            }
+                        } catch(ex) {}
                     }
                 }
             };
@@ -2010,6 +2092,9 @@ class EBookPageContentViewController: UIViewController {
     func updateSnapshot(_ image: UIImage) {
         self.snapshot = image
         self.imageView?.image = image
+        let bgColor = UIColor(hex: EBookPreferences.shared.activeTheme.cssBackground) ?? .black
+        self.view.backgroundColor = bgColor
+        self.imageView?.backgroundColor = bgColor
     }
 
     override func viewDidLoad() {
@@ -2017,7 +2102,7 @@ class EBookPageContentViewController: UIViewController {
 
         let prefs = EBookPreferences.shared
         let bgColor = UIColor(hex: prefs.activeTheme.cssBackground) ?? .black
-        view.backgroundColor = bgColor
+        view.backgroundColor = snapshot != nil ? bgColor : .clear
 
         // Setup snapshot image view (0ms instant page rendering for 3D curl)
         let iv = UIImageView(frame: view.bounds)
@@ -2025,7 +2110,7 @@ class EBookPageContentViewController: UIViewController {
         iv.contentMode = .scaleToFill
         iv.clipsToBounds = true
         iv.image = snapshot
-        iv.backgroundColor = bgColor
+        iv.backgroundColor = snapshot != nil ? bgColor : .clear
         iv.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(iv)
