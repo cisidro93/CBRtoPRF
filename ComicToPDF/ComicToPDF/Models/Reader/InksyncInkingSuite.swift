@@ -34,8 +34,8 @@ public enum InkingToolKind: String, Codable, CaseIterable, Sendable {
 // MARK: - Calibrated 9-Color Palette (reMarkable Inspired)
 
 public enum InksyncInkColor: String, Codable, CaseIterable, Sendable {
-    case obsidian    = "#1C1C1E"
-    case charcoal    = "#48484A"
+    case obsidian    = "#000000"
+    case charcoal    = "#3A3A3C"
     case slate       = "#8E8E93"
     case cobalt      = "#0A84FF"
     case crimson     = "#FF453A"
@@ -46,9 +46,9 @@ public enum InksyncInkColor: String, Codable, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .obsidian:    return "Obsidian"
+        case .obsidian:    return "Black"
         case .charcoal:    return "Charcoal"
-        case .slate:       return "Slate"
+        case .slate:       return "Gray"
         case .cobalt:      return "Cobalt"
         case .crimson:     return "Crimson"
         case .emerald:     return "Emerald"
@@ -63,7 +63,17 @@ public enum InksyncInkColor: String, Codable, CaseIterable, Sendable {
     }
 
     public var uiColor: UIColor {
-        UIColor(self.color)
+        switch self {
+        case .obsidian:    return UIColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
+        case .charcoal:    return UIColor(red: 0.227, green: 0.227, blue: 0.235, alpha: 1.0)
+        case .slate:       return UIColor(red: 0.557, green: 0.557, blue: 0.576, alpha: 1.0)
+        case .cobalt:      return UIColor(red: 0.039, green: 0.518, blue: 1.0, alpha: 1.0)
+        case .crimson:     return UIColor(red: 1.0, green: 0.271, blue: 0.227, alpha: 1.0)
+        case .emerald:     return UIColor(red: 0.188, green: 0.820, blue: 0.345, alpha: 1.0)
+        case .honeyYellow: return UIColor(red: 1.0, green: 0.839, blue: 0.039, alpha: 1.0)
+        case .violet:      return UIColor(red: 0.749, green: 0.353, blue: 0.949, alpha: 1.0)
+        case .sepia:       return UIColor(red: 0.675, green: 0.557, blue: 0.408, alpha: 1.0)
+        }
     }
 }
 

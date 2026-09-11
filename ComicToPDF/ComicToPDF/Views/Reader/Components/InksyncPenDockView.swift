@@ -242,27 +242,33 @@ public struct InksyncPenDockView: View {
         } label: {
             ZStack(alignment: .bottomTrailing) {
                 Image(systemName: preset.kind.iconSystemName)
-                    .font(.system(size: 15, weight: isSelected ? .bold : .regular))
-                    .foregroundStyle(isSelected ? preset.color.color : Color.secondary)
+                    .font(.system(size: 15, weight: isSelected ? .bold : .semibold))
+                    .foregroundStyle(preset.color == .obsidian ? Color.primary : preset.color.color)
                     .frame(width: 32, height: 32)
                     .background(
                         Circle()
-                            .fill(isSelected ? preset.color.color.opacity(0.15) : Color.clear)
+                            .fill(isSelected ? (preset.color == .obsidian ? Color.primary.opacity(0.18) : preset.color.color.opacity(0.18)) : Color.primary.opacity(0.04))
                     )
                     .overlay(
                         Circle()
-                            .stroke(isSelected ? preset.color.color : Color.clear, lineWidth: 2)
+                            .stroke(isSelected ? (preset.color == .obsidian ? Color.primary : preset.color.color) : Color.clear, lineWidth: 2)
                     )
 
-                // Color Pip
+                // Color Pip with contrast border
                 Circle()
                     .fill(preset.color.color)
                     .frame(width: 8, height: 8)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.primary.opacity(0.35), lineWidth: 0.5)
+                    )
                     .offset(x: 1, y: 1)
             }
         }
         .buttonStyle(.plain)
         .scaleEffect(isSelected ? 1.08 : 1.0)
+        .accessibilityLabel("\(preset.name) - \(preset.color.displayName)")
+        .help("\(preset.name) (\(preset.color.displayName))")
     }
 
     // MARK: - Calibrated 9-Color Palette Bar
@@ -283,11 +289,18 @@ public struct InksyncPenDockView: View {
                         .frame(width: isSelected ? 28 : 22, height: isSelected ? 28 : 22)
                         .overlay(
                             Circle()
-                                .stroke(Color.primary.opacity(isSelected ? 0.9 : 0.15), lineWidth: isSelected ? 2.5 : 1)
+                                .stroke(
+                                    color == .obsidian
+                                        ? Color.primary.opacity(isSelected ? 0.9 : 0.4)
+                                        : Color.primary.opacity(isSelected ? 0.9 : 0.15),
+                                    lineWidth: isSelected ? 2.5 : 1
+                                )
                         )
                         .shadow(color: color.color.opacity(isSelected ? 0.4 : 0.1), radius: 4, y: 2)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(color.displayName)
+                .help(color.displayName)
             }
         }
         .padding(.horizontal, 16)

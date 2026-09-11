@@ -240,7 +240,9 @@ public final class PDFPageCanvasProvider: NSObject, PKCanvasViewDelegate {
         for canvas in pageCanvases.values where canvas.pageIndex == pageIndex {
             canvas.drawing = PKDrawing()
             if let page = canvas.associatedPage {
-                saveDrawing(from: canvas, for: page)
+                let key = ObjectIdentifier(page)
+                debounceSaveTasks[key]?.cancel()
+                debounceSaveTasks.removeValue(forKey: key)
             }
         }
     }

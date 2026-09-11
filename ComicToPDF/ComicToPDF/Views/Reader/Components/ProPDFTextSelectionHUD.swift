@@ -97,6 +97,8 @@ struct ProPDFTextSelectionHUD: View {
     var onSpeak: (String) -> Void
     var onCreateZettelkastenCard: (String) -> Void
     var onAddMarginaliaSymbol: ((String) -> Void)? = nil
+    var onAdjustStart: ((Int) -> Void)? = nil
+    var onAdjustEnd: ((Int) -> Void)? = nil
     var onDismiss: (() -> Void)? = nil
 
     init(
@@ -110,6 +112,8 @@ struct ProPDFTextSelectionHUD: View {
         onSpeak: @escaping (String) -> Void,
         onCreateZettelkastenCard: @escaping (String) -> Void,
         onAddMarginaliaSymbol: ((String) -> Void)? = nil,
+        onAdjustStart: ((Int) -> Void)? = nil,
+        onAdjustEnd: ((Int) -> Void)? = nil,
         onDismiss: (() -> Void)? = nil
     ) {
         self.selectedText = selectedText
@@ -122,6 +126,8 @@ struct ProPDFTextSelectionHUD: View {
         self.onSpeak = onSpeak
         self.onCreateZettelkastenCard = onCreateZettelkastenCard
         self.onAddMarginaliaSymbol = onAddMarginaliaSymbol
+        self.onAdjustStart = onAdjustStart
+        self.onAdjustEnd = onAdjustEnd
         self.onDismiss = onDismiss
     }
 
@@ -216,6 +222,96 @@ struct ProPDFTextSelectionHUD: View {
             }
             .padding(.top, 8)
 
+            // Range Adjustment Bar: Shrink/Expand Start and End Points
+            if onAdjustStart != nil || onAdjustEnd != nil {
+                HStack(spacing: 12) {
+                    // Start Point Stepper
+                    HStack(spacing: 3) {
+                        Text("START")
+                            .font(.system(size: 8, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.5))
+                            .padding(.trailing, 2)
+                        
+                        Button {
+                            HapticEngine.selection()
+                            onAdjustStart?(-1) // shrink start
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 20, height: 18)
+                                .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Shrink Start")
+                        .help("Shrink selection start")
+
+                        Button {
+                            HapticEngine.selection()
+                            onAdjustStart?(1) // expand start
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 20, height: 18)
+                                .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Expand Start")
+                        .help("Expand selection start")
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.white.opacity(0.06), in: Capsule())
+
+                    Text(selectedText.prefix(28) + (selectedText.count > 28 ? "…" : ""))
+                        .font(.system(size: 10, weight: .medium, design: .serif))
+                        .foregroundStyle(Color.white.opacity(0.85))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 140)
+
+                    // End Point Stepper
+                    HStack(spacing: 3) {
+                        Text("END")
+                            .font(.system(size: 8, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.5))
+                            .padding(.trailing, 2)
+                        
+                        Button {
+                            HapticEngine.selection()
+                            onAdjustEnd?(-1) // shrink end
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 20, height: 18)
+                                .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Shrink End")
+                        .help("Shrink selection end")
+
+                        Button {
+                            HapticEngine.selection()
+                            onAdjustEnd?(1) // expand end
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 20, height: 18)
+                                .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Expand End")
+                        .help("Expand selection end")
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.white.opacity(0.06), in: Capsule())
+                }
+                .padding(.vertical, 2)
+            }
 
             if showingNoteInput {
                 HStack(spacing: 8) {

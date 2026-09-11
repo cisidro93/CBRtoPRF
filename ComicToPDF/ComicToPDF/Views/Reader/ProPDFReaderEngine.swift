@@ -571,14 +571,19 @@ struct ProPDFReaderEngine: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .annotationsDidChange)) { notif in
-            if let targetPDFID = notif.userInfo?["pdfID"] as? UUID, targetPDFID == pdf.id {
-                if let deletedID = notif.userInfo?["deletedID"] as? UUID {
-                    removeAnnotation(id: deletedID, pageIndex: nil)
-                } else if let doc = pdfDocument {
-                    PDFAnnotationSyncBridge.shared.applyStoreAnnotations(for: pdf.id, to: doc)
+            guard let targetPDFID = notif.userInfo?["pdfID"] as? UUID, targetPDFID == pdf.id else { return }
+            if let deletedID = notif.userInfo?["deletedID"] as? UUID {
+                // Safely detach from native PDF document without re-invoking store.delete
+                if let doc = pdfDocument {
+                    PDFAnnotationSyncBridge.shared.removeAnnotation(id: deletedID, from: doc, destinationURL: resolvedURL)
                     if let pv = pdfViewReference {
                         forcePageRedraw(pv, pageIndex: currentPageIndex)
                     }
+                }
+            } else if let doc = pdfDocument {
+                PDFAnnotationSyncBridge.shared.applyStoreAnnotations(for: pdf.id, to: doc)
+                if let pv = pdfViewReference {
+                    forcePageRedraw(pv, pageIndex: currentPageIndex)
                 }
             }
         }
@@ -932,6 +937,12 @@ struct ProPDFReaderEngine: View {
                             activeSelectionSnapshot = nil
                         }
                         pdfViewReference?.setCurrentSelection(nil, animate: false)
+                    },
+                    onAdjustStart: { delta in
+                        adjustActiveSelection(startDelta: delta, endDelta: 0)
+                    },
+                    onAdjustEnd: { delta in
+                        adjustActiveSelection(startDelta: 0, endDelta: delta)
                     }
                 )
                 .padding(.bottom, chromeVisible ? 80 : 30)
@@ -1770,12 +1781,116 @@ struct ProPDFReaderEngine: View {
         saveMarkup(text: text, color: color, style: .highlight)
     }
 
+    /// Dynamically expands or shrinks the active text selection range before highlighting.
+    private func adjustActiveSelection(startDelta: Int = 0, endDelta: Int = 0) {
+        guard let pdfView = pdfViewReference,
+              let selection = pdfView.currentSelection,
+              let page = selection.pages.first ?? pdfView.currentPage else { return }
+
+        let totalChars = page.numberOfCharacters
+        guard totalChars > 0 else { return }
+
+        let lines = selection.selectionsByLine()
+        let firstLine = lines.first ?? selection
+        let lastLine = lines.last ?? selection
+
+        let firstBounds = firstLine.bounds(for: page)
+        let lastBounds = lastLine.bounds(for: page)
+
+        let startPoint = CGPoint(x: firstBounds.minX + 2, y: firstBounds.midY)
+        let endPoint = CGPoint(x: lastBounds.maxX - 2, y: lastBounds.midY)
+
+        var startIdx = page.characterIndex(at: startPoint)
+        var endIdx = page.characterIndex(at: endPoint)
+
+        if startIdx < 0 { startIdx = 0 }
+        if endIdx < 0 { endIdx = startIdx }
+        if startIdx > endIdx {
+            swap(&startIdx, &endIdx)
+        }
+
+        let pageStr = (page.string ?? "") as NSString
+        let strLen = pageStr.length
+
+        func nudgeStart(from idx: Int, delta: Int) -> Int {
+            if delta < 0 {
+                var p = max(0, idx - 1)
+                while p > 0 && CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p))!) {
+                    p -= 1
+                }
+                while p > 0 && !CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p - 1))!) {
+                    p -= 1
+                }
+                return p
+            } else if delta > 0 {
+                var p = min(strLen - 1, idx + 1)
+                while p < strLen && !CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p))!) {
+                    p += 1
+                }
+                while p < strLen && CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p))!) {
+                    p += 1
+                }
+                return min(p, endIdx)
+            }
+            return idx
+        }
+
+        func nudgeEnd(from idx: Int, delta: Int) -> Int {
+            if delta > 0 {
+                var p = min(strLen - 1, idx + 1)
+                while p < strLen && CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p))!) {
+                    p += 1
+                }
+                while p < strLen && !CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p))!) {
+                    p += 1
+                }
+                return p
+            } else if delta < 0 {
+                var p = max(0, idx - 1)
+                while p > 0 && !CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p))!) {
+                    p -= 1
+                }
+                while p > 0 && CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p - 1))!) {
+                    p -= 1
+                }
+                return max(startIdx, p)
+            }
+            return idx
+        }
+
+        var newStart = startIdx
+        var newEnd = endIdx
+
+        if startDelta != 0 {
+            newStart = nudgeStart(from: startIdx, delta: startDelta)
+        }
+        if endDelta != 0 {
+            newEnd = nudgeEnd(from: endIdx, delta: endDelta)
+        }
+
+        if newEnd < newStart {
+            newEnd = newStart
+        }
+
+        let targetRange = NSRange(location: newStart, length: max(1, newEnd - newStart + 1))
+        guard targetRange.location + targetRange.length <= totalChars else { return }
+
+        if let newSel = page.selection(for: targetRange), let txt = newSel.string, !txt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            pdfView.setCurrentSelection(newSel, animate: false)
+            withAnimation(.easeInOut(duration: 0.15)) {
+                self.selectedTextForHUD = txt
+            }
+            HapticEngine.selection()
+        }
+    }
+
     // MARK: - Remove / Unhighlight Pipeline
 
     /// Removes a highlight/markup annotation from the active PDF document and AnnotationStore.
     private func removeAnnotation(id: UUID, pageIndex: Int? = nil) {
         guard let doc = pdfViewReference?.document ?? pdfDocument else { return }
         let store = AnnotationStore.shared
+        guard store.annotations(for: pdf.id).contains(where: { $0.id == id }) else { return }
         let existing = store.annotations(for: pdf.id).first(where: { $0.id == id })
         let text = existing?.selectedText
         let targetPage = pageIndex ?? existing?.pageIndex ?? currentPageIndex
@@ -1878,21 +1993,8 @@ struct ProPDFReaderEngine: View {
         if let page = pdfView.document?.page(at: pageIndex) {
             page.displaysAnnotations = true
         }
-        pdfView.setNeedsDisplay(pdfView.bounds)
-        pdfView.layoutDocumentView()
         pdfView.setNeedsDisplay()
         pdfView.documentView?.setNeedsDisplay()
-
-        func invalidateAllLayers(_ v: UIView) {
-            v.setNeedsDisplay()
-            v.layer.setNeedsDisplay()
-            for sub in v.subviews {
-                invalidateAllLayers(sub)
-            }
-        }
-        if let docView = pdfView.documentView {
-            invalidateAllLayers(docView)
-        }
     }
 
     private func saveNote(text: String, note: String, color: PDFHighlightColor = EBookPreferences.shared.defaultHighlightColor) {
@@ -2209,7 +2311,9 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         fingerGlide.cancelsTouchesInView = false
         fingerGlide.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         fingerGlide.delegate = context.coordinator
+        fingerGlide.isEnabled = !isPencilMode
         pdfView.addGestureRecognizer(fingerGlide)
+        context.coordinator.fingerGlide = fingerGlide
         // Single-tap only needs to wait for finger glide to fail
         tapGesture.require(toFail: fingerGlide)
 
@@ -2221,7 +2325,9 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         pencilGlide.cancelsTouchesInView = false
         pencilGlide.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
         pencilGlide.delegate = context.coordinator
+        pencilGlide.isEnabled = !isPencilMode
         pdfView.addGestureRecognizer(pencilGlide)
+        context.coordinator.pencilGlide = pencilGlide
 
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -2253,6 +2359,13 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         if uiView.document != document {
             uiView.document = document
             uiView.autoScales = true
+        }
+
+        if context.coordinator.fingerGlide?.isEnabled != !isPencilMode {
+            context.coordinator.fingerGlide?.isEnabled = !isPencilMode
+        }
+        if context.coordinator.pencilGlide?.isEnabled != !isPencilMode {
+            context.coordinator.pencilGlide?.isEnabled = !isPencilMode
         }
 
         if context.coordinator.canvasProvider.isMarkupActive != isPencilMode {
@@ -2382,6 +2495,17 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         // other and pages get skipped or stuck.
         var isNavigatingProgrammatically: Bool = false
 
+        // Strong references to glide gesture recognizers for dynamic state gating
+        var fingerGlide: UILongPressGestureRecognizer? = nil
+        var pencilGlide: UILongPressGestureRecognizer? = nil
+
+        private enum ActiveDragTarget {
+            case none
+            case adjustingStart(fixedEndPoint: CGPoint, page: PDFPage)
+            case adjustingEnd(fixedStartPoint: CGPoint, page: PDFPage)
+        }
+        private var activeDragTarget: ActiveDragTarget = .none
+
         // Fluid Word-Snapping Glide Selection Session Tracking
         private var glideStartPoint: CGPoint? = nil
         private var glideStartPage: PDFPage? = nil
@@ -2442,6 +2566,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
 
         // MARK: - Fluid Word-Snapping Glide Selection
         @MainActor @objc func handleGlideSelection(_ gesture: UILongPressGestureRecognizer) {
+            if parent.isPencilMode { return }
             guard let pdfView = gesture.view as? PDFView else { return }
             let locationInView = gesture.location(in: pdfView)
 
@@ -2455,6 +2580,41 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                     return
                 }
 
+                // Check if touch is near start handle or end handle of an existing selection to allow resizing
+                if let currentSel = pdfView.currentSelection,
+                   let text = currentSel.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let selPage = currentSel.pages.first, selPage == page {
+                    let lines = currentSel.selectionsByLine()
+                    let firstLine = lines.first ?? currentSel
+                    let lastLine = lines.last ?? currentSel
+
+                    let firstBoundsInPage = firstLine.bounds(for: page)
+                    let lastBoundsInPage = lastLine.bounds(for: page)
+
+                    let firstBoundsInView = pdfView.convert(firstBoundsInPage, from: page)
+                    let lastBoundsInView = pdfView.convert(lastBoundsInPage, from: page)
+
+                    let startHandleInView = CGPoint(x: firstBoundsInView.minX, y: firstBoundsInView.midY)
+                    let endHandleInView = CGPoint(x: lastBoundsInView.maxX, y: lastBoundsInView.midY)
+
+                    let distToStart = hypot(locationInView.x - startHandleInView.x, locationInView.y - startHandleInView.y)
+                    let distToEnd = hypot(locationInView.x - endHandleInView.x, locationInView.y - endHandleInView.y)
+                    let handleHitRadius: CGFloat = 44.0
+
+                    if distToStart <= handleHitRadius && distToStart <= distToEnd {
+                        let fixedEndPointInPage = CGPoint(x: lastBoundsInPage.maxX, y: lastBoundsInPage.midY)
+                        activeDragTarget = .adjustingStart(fixedEndPoint: fixedEndPointInPage, page: page)
+                        HapticEngine.selection()
+                        return
+                    } else if distToEnd <= handleHitRadius {
+                        let fixedStartPointInPage = CGPoint(x: firstBoundsInPage.minX, y: firstBoundsInPage.midY)
+                        activeDragTarget = .adjustingEnd(fixedStartPoint: fixedStartPointInPage, page: page)
+                        HapticEngine.selection()
+                        return
+                    }
+                }
+
+                activeDragTarget = .none
                 let locationInPage = pdfView.convert(locationInView, to: page)
 
                 if let match = findWordSelection(at: locationInPage, on: page) {
@@ -2471,6 +2631,27 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                 }
 
             case .changed:
+                switch activeDragTarget {
+                case .adjustingStart(let fixedEndPoint, let page):
+                    let currentPointInPage = pdfView.convert(locationInView, to: page)
+                    if let newSel = page.selection(from: currentPointInPage, to: fixedEndPoint) {
+                        pdfView.setCurrentSelection(newSel, animate: false)
+                        HapticEngine.selection()
+                    }
+                    return
+
+                case .adjustingEnd(let fixedStartPoint, let page):
+                    let currentPointInPage = pdfView.convert(locationInView, to: page)
+                    if let newSel = page.selection(from: fixedStartPoint, to: currentPointInPage) {
+                        pdfView.setCurrentSelection(newSel, animate: false)
+                        HapticEngine.selection()
+                    }
+                    return
+
+                case .none:
+                    break
+                }
+
                 guard let startPoint = glideStartPoint,
                       let startPage = glideStartPage,
                       let currentTargetPage = pdfView.page(for: locationInView, nearest: true),
@@ -2497,6 +2678,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                 }
 
             case .ended:
+                activeDragTarget = .none
                 if let selection = pdfView.currentSelection, let text = selection.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     selectionChanged(Notification(name: .PDFViewSelectionChanged, object: pdfView))
                     HapticEngine.light()
@@ -2507,6 +2689,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                 lastGlideWordCount = 0
 
             case .cancelled, .failed:
+                activeDragTarget = .none
                 glideStartPoint = nil
                 glideStartPage = nil
                 glideStartWord = nil
@@ -2517,7 +2700,22 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
             }
         }
 
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            if parent.isPencilMode {
+                if gestureRecognizer === pencilGlide || gestureRecognizer === fingerGlide {
+                    return false
+                }
+            }
+            return true
+        }
+
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            if parent.isPencilMode {
+                if gestureRecognizer === pencilGlide || gestureRecognizer === fingerGlide ||
+                   otherGestureRecognizer === pencilGlide || otherGestureRecognizer === fingerGlide {
+                    return false
+                }
+            }
             return true
         }
 
@@ -2543,8 +2741,8 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                 if let page = view.page(for: tapLocation, nearest: false) {
                     let pagePoint = view.convert(tapLocation, to: page)
                     let selectionBounds = selection.bounds(for: page)
-                    // If tap is inside or directly adjoining the active selection, do not clear it
-                    if selectionBounds.insetBy(dx: -16, dy: -16).contains(pagePoint) {
+                    // If tap is inside or directly adjoining the active selection (within 44pt horizontally or 32pt vertically), do not clear it
+                    if selectionBounds.insetBy(dx: -44, dy: -32).contains(pagePoint) {
                         return
                     }
                 }
