@@ -612,9 +612,6 @@ struct ProPDFReaderEngine: View {
                 }
             }
         }
-        .onChange(of: isPencilMode) { _, enabled in
-            pdfViewReference?.isInMarkupMode = enabled
-        }
     }
 
     // MARK: - Subviews for Fast Compiler Type-Checking
@@ -663,13 +660,18 @@ struct ProPDFReaderEngine: View {
                     toggleChrome()
                 },
                 onTextSelectionChanged: { text, snapshot in
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        selectedTextForHUD = text
+                    if isPencilMode && InksyncInkingState.shared.activeToolMode == .textHighlight {
                         activeSelectionSnapshot = snapshot
+                        selectedTextForHUD = nil
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            selectedTextForHUD = text
+                            activeSelectionSnapshot = snapshot
+                        }
                     }
                 },
                 onHighlightRequested: {
-                    if let text = selectedTextForHUD ?? pdfViewReference?.currentSelection?.string,
+                    if let text = activeSelectionSnapshot?.text ?? selectedTextForHUD ?? pdfViewReference?.currentSelection?.string,
                        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         saveMarkup(text: text, color: EBookPreferences.shared.defaultHighlightColor, style: .highlight)
                         selectedTextForHUD = nil
@@ -2094,28 +2096,61 @@ struct ProPDFReaderEngine: View {
         HapticEngine.selection()
     }
 
-    /// Erases all ink drawings on the current page
+    /// Erases all markup (ink drawings, highlights, underlines, strikeouts) from all currently visible pages
     private func clearCurrentPageMarkup() {
-        if let coordinator = (pdfViewReference?.delegate as? ProPDFViewRepresentable.Coordinator) {
-            coordinator.canvasProvider.clearDrawing(for: currentPageIndex)
+        guard let doc = pdfViewReference?.document ?? pdfDocument else { return }
+        let coordinator = pdfViewReference?.delegate as? ProPDFViewRepresentable.Coordinator
+        
+        // 1. Identify all visible pages (handles both Single-Page and Dual-Page modes)
+        let visiblePages = pdfViewReference?.visiblePages ?? [doc.page(at: currentPageIndex)].compactMap { $0 }
+        let targetPageIndices: [Int] = visiblePages.compactMap { doc.index(for: $0) }.filter { $0 >= 0 }
+        let effectiveIndices = targetPageIndices.isEmpty ? [currentPageIndex] : targetPageIndices
+        
+        // 2. Clear canvas drawings for each visible page
+        for pageIdx in effectiveIndices {
+            coordinator?.canvasProvider.clearDrawing(for: pageIdx)
         }
+        
+        // 3. Strip native PDF annotations from each visible page
+        for page in visiblePages {
+            let annotationsToRemove = page.annotations
+            for annotation in annotationsToRemove {
+                page.removeAnnotation(annotation)
+            }
+        }
+        
+        // 4. Remove all annotations for these pages from SwiftData
         let targetID: UUID = pdf.id
-        let targetPageIndex: Int = currentPageIndex
-        let targetKind: String = "ink"
-        let descriptor = FetchDescriptor<SDAnnotation>(
-            predicate: #Predicate<SDAnnotation> { annotation in
-                annotation.pdfID == targetID && annotation.pageIndex == targetPageIndex && annotation.kindRaw == targetKind
+        for pageIdx in effectiveIndices {
+            let descriptor = FetchDescriptor<SDAnnotation>(
+                predicate: #Predicate<SDAnnotation> { annotation in
+                    annotation.pdfID == targetID && annotation.pageIndex == pageIdx
+                }
+            )
+            if let items = try? modelContext.fetch(descriptor) {
+                for item in items {
+                    modelContext.delete(item)
+                }
             }
-        )
-        if let items = try? modelContext.fetch(descriptor) {
-            for item in items {
-                modelContext.delete(item)
-            }
-            try? modelContext.save()
         }
-        if let ann = AnnotationStore.shared.annotations(for: targetID).first(where: { $0.pageIndex == targetPageIndex && $0.kind == .ink }) {
+        try? modelContext.save()
+        
+        // 5. Remove matching annotations from AnnotationStore
+        let allStoreAnnotations = AnnotationStore.shared.annotations(for: targetID)
+        for ann in allStoreAnnotations where effectiveIndices.contains(ann.pageIndex) {
             AnnotationStore.shared.delete(id: ann.id, pdfID: targetID)
         }
+        
+        // 6. Force page redraw for all visible pages
+        if let pv = pdfViewReference {
+            for pageIdx in effectiveIndices {
+                forcePageRedraw(pv, pageIndex: pageIdx)
+            }
+        }
+        
+        // 7. Schedule disk sync
+        PDFAnnotationSyncBridge.shared.scheduleDebouncedDiskSync(for: pdf.id, in: doc, at: resolvedURL)
+        
         showToastMessage("Page Markup Cleared")
         HapticEngine.medium()
     }
@@ -2874,7 +2909,13 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                 activeDragTarget = .none
                 if let selection = pdfView.currentSelection, let text = selection.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     selectionChanged(Notification(name: .PDFViewSelectionChanged, object: pdfView))
-                    HapticEngine.light()
+                    if parent.isPencilMode && InksyncInkingState.shared.activeToolMode == .textHighlight {
+                        parent.onHighlightRequested?()
+                        pdfView.setCurrentSelection(nil, animate: false)
+                        HapticEngine.selection()
+                    } else {
+                        HapticEngine.light()
+                    }
                 }
                 glideStartPoint = nil
                 glideStartPage = nil

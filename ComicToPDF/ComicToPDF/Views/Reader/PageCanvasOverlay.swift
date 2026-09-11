@@ -11,9 +11,24 @@ final class PassthroughPKCanvasView: PKCanvasView {
     var pageIndex: Int = 0
     weak var associatedPage: PDFPage? = nil
     
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        overrideUserInterfaceStyle = .light
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        overrideUserInterfaceStyle = .light
+    }
+    
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard isMarkupActive else { return nil }
         guard let view = super.hitTest(point, with: event) else { return nil }
+        
+        // Always allow touch when in eraser mode so fingers can erase strokes
+        if InksyncInkingState.shared.activeToolMode == .eraser {
+            return view
+        }
         
         if allowFingerDrawing {
             return view

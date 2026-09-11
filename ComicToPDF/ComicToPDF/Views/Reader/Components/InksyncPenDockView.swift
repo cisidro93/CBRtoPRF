@@ -9,6 +9,7 @@ import PencilKit
 public struct InksyncPenDockView: View {
 
     @ObservedObject var inkingState = InksyncInkingState.shared
+    @ObservedObject var prefs = EBookPreferences.shared
     var onClearPage: (() -> Void)? = nil
     var onClose: (() -> Void)? = nil
 
@@ -210,7 +211,30 @@ public struct InksyncPenDockView: View {
                 }
                 .buttonStyle(.plain)
             } else if inkingState.activeToolMode == .textHighlight {
-                Text("Glide across text to highlight")
+                HStack(spacing: 6) {
+                    ForEach(PDFHighlightColor.allCases) { hlColor in
+                        let isSelected = prefs.defaultHighlightColor == hlColor
+                        Button {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                prefs.defaultHighlightColor = hlColor
+                            }
+                            HapticEngine.selection()
+                        } label: {
+                            Circle()
+                                .fill(hlColor.color)
+                                .frame(width: isSelected ? 20 : 15, height: isSelected ? 20 : 15)
+                                .overlay(
+                                    Circle()
+                                        .stroke(isSelected ? Color.white : Color.clear, lineWidth: 2)
+                                )
+                                .shadow(color: hlColor.color.opacity(isSelected ? 0.6 : 0.2), radius: isSelected ? 3 : 1)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 4)
+
+                Text("Glide to highlight")
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 4)

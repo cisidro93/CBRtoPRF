@@ -39,6 +39,21 @@ public final class PDFPageCanvasProvider: NSObject, PKCanvasViewDelegate {
                 self?.updateAllCanvasTools()
             }
             .store(in: &cancellables)
+
+        InksyncInkingState.shared.$activeToolMode
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateAllCanvasTools()
+                self?.updateCanvasInteractivity()
+            }
+            .store(in: &cancellables)
+
+        InksyncInkingState.shared.$eraserType
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateAllCanvasTools()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Overlay View Provider Methods (MainActor)
@@ -54,6 +69,7 @@ public final class PDFPageCanvasProvider: NSObject, PKCanvasViewDelegate {
         guard pageIdx >= 0 else { return nil }
 
         let canvas = PassthroughPKCanvasView()
+        canvas.overrideUserInterfaceStyle = .light
         canvas.pageIndex = pageIdx
         canvas.associatedPage = page
         canvas.backgroundColor = .clear
@@ -127,14 +143,18 @@ public final class PDFPageCanvasProvider: NSObject, PKCanvasViewDelegate {
         let isPad = UIDevice.current.userInterfaceIdiom == .pad
         let prefs = EBookPreferences.shared
         let pencilOnly = isPad && (AppSettingsManager.shared.conversionSettings.pencilOnlyDrawing || prefs.applePencilAutoDraw)
+        let isEraser = InksyncInkingState.shared.activeToolMode == .eraser
 
+        canvas.overrideUserInterfaceStyle = .light
         canvas.isMarkupActive = isMarkupActive
-        canvas.allowFingerDrawing = isMarkupActive && !pencilOnly
-        canvas.drawingPolicy = pencilOnly ? .pencilOnly : .anyInput
+        canvas.allowFingerDrawing = isMarkupActive && (!pencilOnly || isEraser)
+        canvas.drawingPolicy = (pencilOnly && !isEraser) ? .pencilOnly : .anyInput
         canvas.isUserInteractionEnabled = isMarkupActive
         canvas.drawingGestureRecognizer.cancelsTouchesInView = false
-        if pencilOnly {
+        if pencilOnly && !isEraser {
             canvas.panGestureRecognizer.isEnabled = false
+        } else {
+            canvas.panGestureRecognizer.isEnabled = true
         }
     }
 
