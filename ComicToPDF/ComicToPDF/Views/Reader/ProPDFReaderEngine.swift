@@ -931,18 +931,18 @@ struct ProPDFReaderEngine: View {
                         saveMarginalia(text: selectedText, symbol: symbol, color: EBookPreferences.shared.defaultHighlightColor)
                         selectedTextForHUD = nil
                     },
+                    onAdjustStart: { delta in
+                        adjustActiveSelection(startDelta: delta, endDelta: 0)
+                    },
+                    onAdjustEnd: { delta in
+                        adjustActiveSelection(startDelta: 0, endDelta: delta)
+                    },
                     onDismiss: {
                         withAnimation(.easeInOut(duration: 0.18)) {
                             selectedTextForHUD = nil
                             activeSelectionSnapshot = nil
                         }
                         pdfViewReference?.setCurrentSelection(nil, animate: false)
-                    },
-                    onAdjustStart: { delta in
-                        adjustActiveSelection(startDelta: delta, endDelta: 0)
-                    },
-                    onAdjustEnd: { delta in
-                        adjustActiveSelection(startDelta: 0, endDelta: delta)
                     }
                 )
                 .padding(.bottom, chromeVisible ? 80 : 30)

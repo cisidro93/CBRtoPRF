@@ -1925,6 +1925,54 @@ extension EBookPageCurlReader {
                 return text;
             };
 
+            window.adjustInksyncSelection = function(delta, isStart) {
+                var sel = window.getSelection();
+                var range = (sel && sel.rangeCount > 0 && !sel.isCollapsed) ? sel.getRangeAt(0) : window.__lastSelectedRange;
+                if (!range) return "";
+                try {
+                    if (isStart) {
+                        if (delta < 0) {
+                            if (range.startOffset > 0) {
+                                range.setStart(range.startContainer, Math.max(0, range.startOffset - 1));
+                            } else if (range.startContainer.previousSibling && range.startContainer.previousSibling.nodeType === Node.TEXT_NODE) {
+                                var prev = range.startContainer.previousSibling;
+                                range.setStart(prev, Math.max(0, prev.nodeValue.length - 1));
+                            }
+                        } else {
+                            var maxStart = (range.startContainer === range.endContainer) ? range.endOffset - 1 : (range.startContainer.nodeValue ? range.startContainer.nodeValue.length : 0);
+                            if (range.startOffset < maxStart) {
+                                range.setStart(range.startContainer, range.startOffset + 1);
+                            }
+                        }
+                    } else {
+                        if (delta > 0) {
+                            var endLen = range.endContainer.nodeValue ? range.endContainer.nodeValue.length : 0;
+                            if (range.endOffset < endLen) {
+                                range.setEnd(range.endContainer, range.endOffset + 1);
+                            } else if (range.endContainer.nextSibling && range.endContainer.nextSibling.nodeType === Node.TEXT_NODE) {
+                                var next = range.endContainer.nextSibling;
+                                range.setEnd(next, Math.min(next.nodeValue.length, 1));
+                            }
+                        } else {
+                            var minEnd = (range.startContainer === range.endContainer) ? range.startOffset + 1 : 1;
+                            if (range.endOffset > minEnd) {
+                                range.setEnd(range.endContainer, range.endOffset - 1);
+                            }
+                        }
+                    }
+                    if (sel) {
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    }
+                    window.__lastSelectedRange = range.cloneRange();
+                    var newText = range.toString().trim();
+                    window.__lastSelectedText = newText;
+                    return newText;
+                } catch(e) {
+                    return range.toString().trim();
+                }
+            };
+
             window.updateInksyncHighlightColor = function(idOrText, newColorHex) {
                 if (!idOrText) return;
                 var targetMarks = [];
