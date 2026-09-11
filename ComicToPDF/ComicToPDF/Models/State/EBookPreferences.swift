@@ -190,6 +190,16 @@ class EBookPreferences: ObservableObject {
         didSet { objectWillChange.send() }
     }
 
+    var defaultCodableCropInsets: CodableCropInsets {
+        CodableCropInsets(
+            top: defaultCropTop,
+            bottom: defaultCropBottom,
+            left: defaultCropLeft,
+            right: defaultCropRight,
+            modeRaw: "custom"
+        )
+    }
+
     // MARK: - Academic Article / Column Mode
     @AppStorage("pdf_isArticleMode")          var isArticleMode: Bool        = false {
         didSet { objectWillChange.send() }

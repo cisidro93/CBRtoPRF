@@ -1311,7 +1311,13 @@ struct ProPDFReaderEngine: View {
                     case "smartAuto":
                         applyCropInsets(.smartAuto)
                     case "custom":
-                        applyCropInsets(prefs.defaultCodableCropInsets)
+                        applyCropInsets(CodableCropInsets(
+                            top: prefs.defaultCropTop,
+                            bottom: prefs.defaultCropBottom,
+                            left: prefs.defaultCropLeft,
+                            right: prefs.defaultCropRight,
+                            modeRaw: "custom"
+                        ))
                     default:
                         applyCropInsets(.none)
                     }
