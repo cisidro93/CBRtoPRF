@@ -12,6 +12,7 @@
 | **v1.0** | May 2026 | Initial system architecture, multi-format reader engine design, and hardware profile baselines. |
 | **v2.0** | September 2026 | Unified cache limits (`ReaderCacheLimits`), added measured/target telemetry tags, documented `ConversionLedger`, `ComicVineRateTracker`, and `CloudCoverExtractor`; introduced 3-tier roadmap, Security, Accessibility, and Non-Goals. |
 | **v2.1** | September 2026 | Aligned e-ink device profiles with `TargetDeviceProfile` enum (splitting Colorsoft 7" and Boox Note Air3 C); replaced personal attributions in kernel diagram with descriptive architectural pillars; clarified unadorned source-layer content hashing; implemented intentional rereading regression handling & FIFO session eviction in `ReadingProgress.merge`; documented 6-digit PIN, 5-attempt IP lockout & 500ms anti-timing delay in `WiFiServer`; added inline tier tags across all sections and declared localization baseline. |
+| **v2.2** | September 2026 | Explicitly designated Core PDF Annotation, Highlighting & Apple Pencil Inking as Tier 1 MVP baseline; documented ISO 32000-1 quad points, Adler 5-color palette, 120Hz PencilKit canvas overlays, and bi-directional native sync bridge under Tier 1; updated Section 2.1, Section 3.1, and Section 6. |
 
 ---
 
@@ -57,18 +58,19 @@ To maintain architectural focus and high engineering standards during developmen
 ### Tier 1: Core Reading MVP (Active Production Baseline)
 
 - **Vector & Reflowable Reader Engines:** Robust, crash-free viewing for PDF (`ProPDFReaderEngine` with Smart Margin Crop and Panels-style lock zoom), Reflowable EPUB (`EBookPageCurlReader` with invariant viewport geometry and 3D curl), and Comic archives (`ComicReaderEngine` with spread splitting and JIT decompression).
-- **Authoritative State & Progress Tracking:** Single source of truth reading progress with non-destructive field-level iCloud merge (`ReadingProgress.merge(local:remote:)`) supporting intentional rereading regression.
+- **Core PDF Annotation, Highlighting & Inking:** Full native PDFKit text markup (`PDFAnnotation` for highlight, underline, and strikethrough), Mortimer Adler 5-color semantic palette, ISO 32000-1 quadrilateral point geometry (`PDFHighlightGeometryHelper`), fluid word-snapping touch and Apple Pencil glide selection, note popovers, and bookmarks.
+- **120Hz Native Apple Pencil Inking:** `PDFPageCanvasProvider` zero-drift `PassthroughPKCanvasView` overlays anchored directly into `PDFPageView` scroll tiles with floating tool dock, tool squeeze, barrel roll, eraser, and stroke persistence.
+- **Authoritative State & Unified Annotation Persistence:** Multi-level storage with instant memory cache (`AnnotationStore.shared`), background SwiftData persistence (`SDAnnotation`), and debounced native PDF disk synchronization (`PDFAnnotationSyncBridge`). Single source of truth reading progress with non-destructive field-level iCloud merge (`ReadingProgress.merge(local:remote:)`) supporting intentional rereading regression.
+- **Content-Hash Page Anchoring:** Dual keying of annotations via absolute page index and cryptographic page content hashes (`PageContentHasher`, `AnnotationStore.hashIndex`) computed strictly on unadorned source layers.
 - **Zero-Leak Hardware Defense:** Centralized cache limits (`ReaderCacheLimits`), immediate `didReceiveMemoryWarningNotification` memory flushing, and zero-idle background watchdog tasks.
 - **Cross-Process File Ingestion:** Resilient document import via Files.app, AirDrop, and Share Extension with file stability settle loops (`SharedImportCoordinator`).
 
 ### Tier 2: Pro Active Study & Knowledge Synthesis (Secondary Focus)
 
-- **Semantic Marginalia & Geometry:** 5-color Mortimer Adler analytical taxonomy with ISO-standard quad-point highlight geometry (`PDFHighlightGeometryHelper`).
-- **Content-Hash Page Anchoring:** Dual keying of annotations via absolute page index and cryptographic page content hashes (`PageContentHasher`, `AnnotationStore.hashIndex`) computed strictly on unadorned source layers.
 - **Cornell 3-Zone Note Paper:** Left Cue, Notes Canvas, and Summary zones with interactive recitation curtain and SwiftData persistence (`StudyNotebookView`, `CornellNotesZoneView`).
 - **Spaced Repetition (SuperMemo SM-2):** Algorithmic flashcard scheduling and 3D flip card active recall HUD (`StudyCardScheduler`, `StudyDeckReviewView`).
-- **120Hz PencilKit Inking:** Apple PencilKit integration supporting Apple Pencil Pro squeeze, barrel roll, and tactile haptic feedback.
-- **Relational Markdown Exporter:** Clean Markdown and Obsidian vault export with YAML frontmatter and vector image assets.
+- **Zettelkasten Concept Auto-Linking:** Algorithmic knowledge graph formation (`ZettelkastenAutoLinker`), automated cross-document concept indexing, and bi-directional linked node navigation.
+- **Relational Markdown Exporter:** Clean Markdown and Obsidian vault export with YAML frontmatter, pre-rendered vector PNG assets, and `[[WikiLinks]]`.
 
 ### Tier 3: Collaborative, Conversion & Ecosystem Extensions (Stretch / Non-Blocking)
 
@@ -88,6 +90,14 @@ InkSync Pro's reading engines are systematically benchmarked against and enginee
 ### 3.1 Pro Vector PDF Reader (`ProPDFReaderEngine`)
 
 - **Native PDFKit Integration:** Continuous 120Hz ProMotion touch tracking [Target: 8.33ms frame interval], asynchronous tile rasterization, and sub-pixel glyph rendering.
+- **Core PDF Annotation & Highlighting Engine (Tier 1 Baseline):**
+  - *Adler 5-Color Semantic Palette:* 🟡 Core Thesis, 🔵 Empirical Evidence, 🟢 Technical Definition, 🟣 Methodology, 🔴 Counter-Argument.
+  - *Quad-Point Glyph Geometry:* ISO 32000-1 compliant quadrilateral points (`PDFHighlightGeometryHelper.createQuadPoints`) for sub-pixel text alignment matching glyph angles.
+  - *Touch & Apple Pencil Glide Selection:* 180ms finger glide and 20ms stylus glide with proximity-assisted word snapping.
+  - *Multi-Level Persistence:* Instant memory lookup via `AnnotationStore.shared`, background SwiftData persistence (`SDAnnotation`), and bi-directional Adobe-standard disk sync via `PDFAnnotationSyncBridge`.
+- **120Hz Apple Pencil Canvas Overlays (Tier 1 Baseline):**
+  - *Zero-Drift Tile Overlays:* `PDFPageCanvasProvider` binds scoped `PassthroughPKCanvasView` overlays to each `PDFPageView` scroll tile, preventing coordinate drift on zoom.
+  - *Hardware Stylus Features:* PencilKit floating dock, double-tap eraser toggle, Apple Pencil Pro squeeze gesture, and tactile haptic feedback.
 - **Boox NeoReader Smart Crop & Article Mode:**
   - *Smart Auto Crop:* Analyzes whitespace margins using `CGPDFPage` content bounds and expands text to edge.
   - *Alternating Odd/Even Crop:* Compares and offsets inner gutter binding margins across physical book spreads.
@@ -214,7 +224,7 @@ Benchmarked against modern digital study environments, InkSync Pro unifies stylu
 
 ## 6. Mortimer Adler 5-Color Semantic Marginalia Palette
 
-> **Roadmap Scope:** Tier 2 (Pro Active Study)
+> **Roadmap Scope:** Tier 1 (Core In-Book Highlighting & Markup MVP) & Tier 2 (Active Study Deck Integration)
 
 InkSync Pro replaces generic highlighter colors with Mortimer Adler's analytical reading taxonomy (*How to Read a Book*):
 

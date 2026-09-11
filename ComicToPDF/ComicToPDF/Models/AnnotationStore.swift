@@ -493,7 +493,7 @@ class AnnotationStore: ObservableObject {
         NotificationCenter.default.post(
             name: .annotationsDidChange,
             object: nil,
-            userInfo: ["pdfID": pdfID, "annotationID": id]
+            userInfo: ["pdfID": pdfID, "annotationID": id, "deletedID": id]
         )
     }
     
