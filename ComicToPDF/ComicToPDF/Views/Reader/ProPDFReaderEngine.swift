@@ -1782,6 +1782,7 @@ struct ProPDFReaderEngine: View {
     }
 
     /// Dynamically expands or shrinks the active text selection range before highlighting.
+    @MainActor
     private func adjustActiveSelection(startDelta: Int = 0, endDelta: Int = 0) {
         guard let pdfView = pdfViewReference,
               let selection = pdfView.currentSelection,
@@ -1809,25 +1810,31 @@ struct ProPDFReaderEngine: View {
             swap(&startIdx, &endIdx)
         }
 
-        let pageStr = (page.string ?? "") as NSString
-        let strLen = pageStr.length
+        let utf16Units = Array((page.string ?? "").utf16)
+        let strLen = utf16Units.count
+
+        func isWhitespace(_ codeUnit: UInt16) -> Bool {
+            guard let scalar = UnicodeScalar(codeUnit) else { return false }
+            return CharacterSet.whitespacesAndNewlines.contains(scalar)
+        }
 
         func nudgeStart(from idx: Int, delta: Int) -> Int {
+            guard strLen > 0 else { return idx }
             if delta < 0 {
                 var p = max(0, idx - 1)
-                while p > 0 && CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p))!) {
+                while p > 0 && p < strLen && isWhitespace(utf16Units[p]) {
                     p -= 1
                 }
-                while p > 0 && !CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p - 1))!) {
+                while p > 0 && (p - 1) < strLen && !isWhitespace(utf16Units[p - 1]) {
                     p -= 1
                 }
                 return p
             } else if delta > 0 {
                 var p = min(strLen - 1, idx + 1)
-                while p < strLen && !CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p))!) {
+                while p < strLen && !isWhitespace(utf16Units[p]) {
                     p += 1
                 }
-                while p < strLen && CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p))!) {
+                while p < strLen && isWhitespace(utf16Units[p]) {
                     p += 1
                 }
                 return min(p, endIdx)
@@ -1836,21 +1843,22 @@ struct ProPDFReaderEngine: View {
         }
 
         func nudgeEnd(from idx: Int, delta: Int) -> Int {
+            guard strLen > 0 else { return idx }
             if delta > 0 {
                 var p = min(strLen - 1, idx + 1)
-                while p < strLen && CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p))!) {
+                while p < strLen && isWhitespace(utf16Units[p]) {
                     p += 1
                 }
-                while p < strLen && !CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p))!) {
+                while p < strLen && !isWhitespace(utf16Units[p]) {
                     p += 1
                 }
                 return p
             } else if delta < 0 {
                 var p = max(0, idx - 1)
-                while p > 0 && !CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p))!) {
+                while p > 0 && p < strLen && !isWhitespace(utf16Units[p]) {
                     p -= 1
                 }
-                while p > 0 && CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(pageStr.character(at: p - 1))!) {
+                while p > 0 && (p - 1) < strLen && isWhitespace(utf16Units[p - 1]) {
                     p -= 1
                 }
                 return max(startIdx, p)
