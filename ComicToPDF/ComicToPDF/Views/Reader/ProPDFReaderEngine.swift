@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Foundation
 @preconcurrency import PDFKit
 import PencilKit
 import AVFoundation
@@ -489,7 +490,7 @@ struct ProPDFReaderEngine: View {
                 }
                 return .handled
             }
-            .onKeyPress(characters: "z", phases: .down) { press in
+            .onKeyPress(characters: CharacterSet(charactersIn: "zZ"), phases: .down) { press in
                 if press.modifiers.contains(.command) {
                     if press.modifiers.contains(.shift) {
                         performRedo()
