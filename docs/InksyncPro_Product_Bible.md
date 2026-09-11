@@ -5,6 +5,14 @@
 **Target Hardware:** iPhone 15/16 Pro & Max, iPad Mini (8.3"), iPad Air (11"), iPad Pro (11" & 13" M4 120Hz ProMotion)  
 **Stylus Support:** Apple Pencil 2, Apple Pencil USB-C, and Apple Pencil Pro (Pencil Hover, Tool Squeeze, Barrel Roll & Tactile Haptic Feedback)
 
+### Revision History
+
+| Version | Date | Key Architectural Adjustments & Reconciliations |
+| :--- | :--- | :--- |
+| **v1.0** | May 2026 | Initial system architecture, multi-format reader engine design, and hardware profile baselines. |
+| **v2.0** | September 2026 | Unified cache limits (`ReaderCacheLimits`), added measured/target telemetry tags, documented `ConversionLedger`, `ComicVineRateTracker`, and `CloudCoverExtractor`; introduced 3-tier roadmap, Security, Accessibility, and Non-Goals. |
+| **v2.1** | September 2026 | Aligned e-ink device profiles with `TargetDeviceProfile` enum (splitting Colorsoft 7" and Boox Note Air3 C); replaced personal attributions in kernel diagram with descriptive architectural pillars; clarified unadorned source-layer content hashing; implemented intentional rereading regression handling & FIFO session eviction in `ReadingProgress.merge`; documented 6-digit PIN, 5-attempt IP lockout & 500ms anti-timing delay in `WiFiServer`; added inline tier tags across all sections and declared localization baseline. |
+
 ---
 
 ## 1. Product Vision & Philosophy
@@ -18,19 +26,27 @@ The core user experience philosophy: **the app should feel like a beautifully cr
 
 ---
 
-## 2. Master Architecture Protocol (Educator Synthesis)
+## 2. Master Architecture Protocol
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           INKSYNC PRO KERNEL ARCHITECTURE                       │
 ├─────────────────────────┬───────────────────────────┬───────────────────────────┤
-│    POINT-FREE SWIFT 6   │    KAVSOFT PROMOTION      │    PAUL HUDSON NATIVE     │
-│   Strict Actor State    │   Glassmorphic 120Hz UX   │ PDFKit • WebKit • PencilKit│
+│   STRICT CONCURRENCY    │    PROMOTION 120HZ UX     │    NATIVE FRAMEWORKS      │
+│   Pure Actor State      │   Glassmorphic Micro-UX   │ PDFKit • WebKit • PencilKit│
 ├─────────────────────────┼───────────────────────────┼───────────────────────────┤
-│    THEPRIMEAGEN ZERO    │   VISUAL KERNEL STUDY     │   E-INK CLOUD PIPELINE    │
-│  Zero-Leak Memory & JIT │ Cornell • SM-2 • Zettel   │  Kindle Scribe • Colorsoft│
+│    HARDWARE DEFENSE     │   ACTIVE STUDY ENGINE     │    E-INK OPTIMIZATION     │
+│  Zero-Leak Memory Caps  │ Cornell • SM-2 • Zettel   │  Kindle Scribe • Colorsoft│
 └─────────────────────────┴───────────────────────────┴───────────────────────────┘
 ```
+
+The system architecture is structured across six self-reinforcing engineering pillars:
+1. **Strict Concurrency**: Swift 6 actor-isolated state management and single-source-of-truth stores (`ReaderProgressTracker.shared`, `AnnotationStore.shared`).
+2. **ProMotion 120Hz UX**: Low-latency rendering, fluid spring physics, glassmorphic materials (`.ultraThinMaterial`), and rich haptic feedback.
+3. **Native Frameworks**: Deep integration of first-party Apple frameworks (PDFKit, WebKit, PencilKit, Accelerate vImage, SwiftData).
+4. **Hardware Defense**: Zero-leak memory safety via device-tiered buffer capping (`ReaderCacheLimits`), immediate Jetsam flushes, and zero-idle background watchdog tasks.
+5. **Active Study Engine**: Visual knowledge management unifying Cornell notes, SuperMemo SM-2 spaced repetition, and Zettelkasten concept auto-linking.
+6. **E-Ink Optimization**: Dynamic resolution-aware downsampling and Floyd-Steinberg error diffusion dithering tailored to specific e-paper hardware profiles.
 
 ---
 
@@ -41,14 +57,14 @@ To maintain architectural focus and high engineering standards during developmen
 ### Tier 1: Core Reading MVP (Active Production Baseline)
 
 - **Vector & Reflowable Reader Engines:** Robust, crash-free viewing for PDF (`ProPDFReaderEngine` with Smart Margin Crop and Panels-style lock zoom), Reflowable EPUB (`EBookPageCurlReader` with invariant viewport geometry and 3D curl), and Comic archives (`ComicReaderEngine` with spread splitting and JIT decompression).
-- **Authoritative State & Progress Tracking:** Single source of truth reading progress with non-destructive field-level iCloud merge (`ReadingProgress.merge(local:remote:)`).
+- **Authoritative State & Progress Tracking:** Single source of truth reading progress with non-destructive field-level iCloud merge (`ReadingProgress.merge(local:remote:)`) supporting intentional rereading regression.
 - **Zero-Leak Hardware Defense:** Centralized cache limits (`ReaderCacheLimits`), immediate `didReceiveMemoryWarningNotification` memory flushing, and zero-idle background watchdog tasks.
 - **Cross-Process File Ingestion:** Resilient document import via Files.app, AirDrop, and Share Extension with file stability settle loops (`SharedImportCoordinator`).
 
 ### Tier 2: Pro Active Study & Knowledge Synthesis (Secondary Focus)
 
 - **Semantic Marginalia & Geometry:** 5-color Mortimer Adler analytical taxonomy with ISO-standard quad-point highlight geometry (`PDFHighlightGeometryHelper`).
-- **Content-Hash Page Anchoring:** Dual keying of annotations via absolute page index and cryptographic page content hashes (`AnnotationStore.hashIndex`) for persistent alignment across layout reflows.
+- **Content-Hash Page Anchoring:** Dual keying of annotations via absolute page index and cryptographic page content hashes (`PageContentHasher`, `AnnotationStore.hashIndex`) computed strictly on unadorned source layers.
 - **Cornell 3-Zone Note Paper:** Left Cue, Notes Canvas, and Summary zones with interactive recitation curtain and SwiftData persistence (`StudyNotebookView`, `CornellNotesZoneView`).
 - **Spaced Repetition (SuperMemo SM-2):** Algorithmic flashcard scheduling and 3D flip card active recall HUD (`StudyCardScheduler`, `StudyDeckReviewView`).
 - **120Hz PencilKit Inking:** Apple PencilKit integration supporting Apple Pencil Pro squeeze, barrel roll, and tactile haptic feedback.
@@ -57,13 +73,15 @@ To maintain architectural focus and high engineering standards during developmen
 ### Tier 3: Collaborative, Conversion & Ecosystem Extensions (Stretch / Non-Blocking)
 
 - **Collaborative Reading:** Local peer synchronization via Apple Multipeer Connectivity (`ReadingRoomSession`, `PeerManager`).
-- **Embedded Web Server:** Local Wi-Fi HTTP daemon (`WiFiServer`) with dynamic PIN authentication.
+- **Embedded Web Server:** Local Wi-Fi HTTP daemon (`WiFiServer`) with dynamic 6-digit PIN authentication, 5-attempt IP lockout, and 500ms anti-timing delay.
 - **Kindle Scribe / Colorsoft Pipeline:** E-ink conversion pipeline with 16-level Floyd-Steinberg dithering and transactional ledger tracking (`EInkOptimizer`, `ConversionLedger`).
 - **Cross-Platform Companion:** Android APK build pipeline and cross-platform verification.
 
 ---
 
 ## 3. High-Performance Hybrid Reader Engines (The 4-Titan Architecture)
+
+> **Roadmap Scope:** Tier 1 (Core Reading MVP)
 
 InkSync Pro's reading engines are systematically benchmarked against and engineered to match or surpass the four titans of digital reading: **Amazon Kindle, Panels, KyBook 3, and Onyx Boox NeoReader**.
 
@@ -105,12 +123,16 @@ InkSync Pro's reading engines are systematically benchmarked against and enginee
 
 ## 4. Instant Highlighting & Bidirectional Annotation Synchronization
 
+> **Roadmap Scope:** Tier 1 (Core In-Book Highlighting) & Tier 2 (Content-Hash Anchoring & Study Sync)
+
 ### 4.1 Zero-Latency PDF Highlighting & Exact Coordinate Geometry
 
 - **ISO-Standard Quadrilateral Points (`PDFHighlightGeometryHelper`):** Highlights are constructed using single consolidated `PDFAnnotation(bounds: unionBox, forType: .highlight)` where quad-points are calculated **strictly relative to `unionBox.origin`** (`relMinX = line.minX - unionBox.minX`, etc.). This eliminates the severe double-origin coordinate shift in Apple PDFKit across single-line, multi-line, and wrapped text passages.
 - **Pre-Multiplied Alpha Blending:** Colors utilize `color.directHighlightUIColor` (alpha ~0.55–0.65), preventing dark double-composited overlapping.
 - **Synchronous Main-Runloop Layer Invalidation:** Directly triggers `pdfView.setNeedsDisplay()` and layer invalidation in `forcePageRedraw()` within the active runloop pass, eliminating asynchronous thread hops and redraw delays [Target: < 16ms frame deadline for 60Hz / < 8.3ms for 120Hz ProMotion; Measured: 0 dropped frames on Apple A17 Pro / M4].
-- **Content-Hash Page Anchoring (`AnnotationStore.hashIndex`):** Anchors highlights and annotations not only to absolute page numbers (which shift when documents are edited or re-paginated) but also to cryptographic content hashes of page text and image representations, enabling automatic re-anchoring across layout recalculations.
+- **Content-Hash Page Anchoring (`PageContentHasher`, `AnnotationStore.hashIndex`):**
+  - Anchors highlights and annotations not only to absolute page numbers (which shift when documents are edited or re-paginated) but also to cryptographic SHA-256 hashes of base page visual content.
+  - **Source-Layer Invariant:** Hashes are computed strictly from the **unadorned base source content** (raw image archive bitmap or underlying `CGPDFPage` vector stream via `PageContentHasher.sha256Hex(ofBasePDFPage:)`) **BEFORE** any user highlight overlays, PencilKit ink layers, or UI badges are composited. This guarantees page hashes remain 100% stable as annotations are added or modified, completely eliminating self-invalidation cascades.
 - **SwiftData Persistence:** Immediate insertion of `SDAnnotation` into `modelContext` with safe saving.
 
 ### 4.2 In-Book Highlights Navigator (`PDFOutlineDrawer`)
@@ -129,9 +151,11 @@ InkSync Pro's reading engines are systematically benchmarked against and enginee
 
 ---
 
-## 5. The 4-Titan Study Notebook & Active Learning Ecosystem
+## 5. The Active Study Notebook & Learning Ecosystem
 
-Benchmarked against **GoodNotes 6, Notability, Apple Notes, and Obsidian/Craft**, InkSync Pro unifies stylus handwriting, structured study paper, and relational knowledge graphs into a single coherent system.
+> **Roadmap Scope:** Tier 2 (Pro Active Study)
+
+Benchmarked against modern digital study environments, InkSync Pro unifies stylus handwriting, structured study paper, and relational knowledge graphs into a single coherent system.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -190,6 +214,8 @@ Benchmarked against **GoodNotes 6, Notability, Apple Notes, and Obsidian/Craft**
 
 ## 6. Mortimer Adler 5-Color Semantic Marginalia Palette
 
+> **Roadmap Scope:** Tier 2 (Pro Active Study)
+
 InkSync Pro replaces generic highlighter colors with Mortimer Adler's analytical reading taxonomy (*How to Read a Book*):
 
 | Color | Hex | Semantic Level | Use Case |
@@ -203,6 +229,8 @@ InkSync Pro replaces generic highlighter colors with Mortimer Adler's analytical
 ---
 
 ## 7. Continuous Build Intelligence & Automated "What's New" System
+
+> **Roadmap Scope:** Tier 1 (Core Release Infrastructure)
 
 ### 7.1 Runtime Version & Build Fingerprinting (`AppBuildInfo`)
 
@@ -228,6 +256,8 @@ InkSync Pro replaces generic highlighter colors with Mortimer Adler's analytical
 
 ## 8. Cross-Process Staging, Ingestion & Cloud Synchronization
 
+> **Roadmap Scope:** Tier 1 (Core Ingestion) & Tier 2 (Metadata & Cloud Sync)
+
 ### 8.1 Ingestion Pipeline (`SharedImportCoordinator`)
 
 - **`SharedImportCoordinator` Background Actor:** Handles incoming documents from Share Extension, AirDrop, and Files.app.
@@ -241,29 +271,45 @@ InkSync Pro replaces generic highlighter colors with Mortimer Adler's analytical
 
 ### 8.3 Non-Destructive iCloud Sync Merge (`ReaderProgressTracker`)
 
-- **Furthest Progression Wins:** `ReadingProgress.merge(local:remote:)` evaluates furthest forward progress across chapter indices, chapter offsets, completion fractions, and page numbers, preventing offline reading sessions from being overwritten by stale device timestamps.
-- **Session History Union:** Preserves lifetime page counts (`max(local, remote)`), merges and deduplicates unique reading days, and unions reading session events within 60-second windows (capped at 200 events).
+- **Bidirectional Progress Reconciliation:**
+  - `ReadingProgress.merge(local:remote:)` evaluates furthest forward progress across chapter indices, chapter offsets, completion fractions, and page numbers for standard stale-device catch-up.
+  - **Intentional Backward Reread Preservation:** If a device has an earlier page position but displays a distinctly newer active reading interaction (> 60 seconds newer than the other device's last activity), the system treats this as an intentional rereading session and preserves that deliberate position instead of forcefully snapping forward to a stale furthest point.
+- **Session History Union & FIFO Eviction:**
+  - Preserves lifetime page counts (`max(local, remote)`).
+  - Merges and deduplicates unique reading days across devices.
+  - Unions reading session events within 60-second deduplication windows, enforcing a strict **FIFO (First-In, First-Out) eviction policy** when history exceeds the 200-event cap (dropping oldest records to maintain a clean rolling window).
 - **Display Preference Preservation:** Retains local custom crops, manga mode toggles, and color filters non-destructively.
 
 ---
 
 ## 9. Local Wi-Fi Server & Device Ecosystem
 
-- **Local Wi-Fi Server (`WiFiServer`):** Embedded HTTP daemon on port 8080 supporting PIN-protected web uploads and downloads.
+> **Roadmap Scope:** Tier 3 (Collaborative & Local Network Extensions)
+
+- **Local Wi-Fi Server (`WiFiServer`):**
+  - Embedded HTTP daemon on port 8080 supporting web uploads and downloads directly from any local browser.
+  - **Security Baseline:** Cryptographically random 6-digit PIN (`%06d`, 1,000,000 combinations), automatic 5-attempt IP lockout (`ipBlockThreshold = 5`, HTTP 403), a non-blocking 500ms anti-timing attack delay on failed authentications, and a 15-minute auto-shutdown timer.
+  - **TLS Integration Roadmap:** `WiFiCertificateManager` manages P-256 key-pair generation stored in the Apple Keychain, architected for future TLS transport binding.
 - **Apple Multipeer Connectivity (`ReadingRoomSession` & `PeerManager`):** Real-time collaborative reading and page synchronization across nearby iPads and iPhones.
 
 ---
 
 ## 10. E-Ink Conversion & Sideloading Pipeline
 
-### 10.1 Resolution-Aware Device Profiles (`EInkOptimizer`)
+> **Roadmap Scope:** Tier 3 (Sideloading & Format Conversion)
+
+### 10.1 Resolution-Aware Device Profiles (`TargetDeviceProfile`, `EInkOptimizer`)
+
+Device profiles are mapped directly to physical display resolutions to eliminate runtime downsampling lag and letterboxing artifacts:
 
 | Device | Resolution | PPI | Target Profile |
 | :--- | :--- | :--- | :--- |
-| **Kindle Scribe Colorsoft 11"** | 1980 × 2640 px | 300 PPI | Primary E-Ink Target |
-| **Kindle Scribe Colorsoft 7"** | 1264 × 1680 px | 300 PPI | Portable Scribe |
-| **Kindle Paperwhite** | 1236 × 1648 px | 300 PPI | Standard E-Reader |
-| **Kobo Elipsa / Boox Note Air** | 1404 × 1872 px | 227 PPI | Open Android / Kobo |
+| **Kindle Scribe Colorsoft 11" (2025)** | 1980 × 2640 px | 300 PPI | Primary E-Ink Stylus Target (`.scribeColorsoft`) |
+| **Kindle Colorsoft 7" (2024)** | 1264 × 1680 px | 300 PPI | Portable Color Reader (`.colorsoft7`) |
+| **Kindle Paperwhite (2024)** | 1264 × 1680 px | 300 PPI | Standard E-Reader (`.paperwhite2024`) |
+| **Kindle Scribe 1st Gen (2022)** | 1860 × 2480 px | 300 PPI | Monochrome 10.2" Scribe (`.scribe`) |
+| **Kobo Elipsa 2E (2023)** | 1404 × 1872 px | 227 PPI | Open Kobo 10.3" Large Format (`.koboElipsa2E`) |
+| **Boox Note Air3 C / Tab Ultra C Pro** | 1860 × 2480 px | 300 PPI B&W / 150 PPI Color | Kaleido 3 10.3" Color E-Paper (`.booxNoteAir3C`) |
 
 ### 10.2 Kindle EPUB Compliance Standard
 
@@ -281,6 +327,8 @@ InkSync Pro replaces generic highlighter colors with Mortimer Adler's analytical
 ---
 
 ## 11. Technical Specifications & Concurrency Invariants
+
+> **Roadmap Scope:** Core Architectural Foundation (Applies to all Tiers)
 
 ```swift
 // Swift 6 Strict Concurrency Architecture Pattern
@@ -315,6 +363,8 @@ final class UnifiedReaderState: ObservableObject {
 
 ## 12. File Structure & Module Map
 
+> **Roadmap Scope:** System-Wide Directory Structure
+
 ```text
 InksyncPro/
 ├── .github/workflows/
@@ -329,13 +379,13 @@ InksyncPro/
 │       ├── Resources/
 │       │   └── WhatsNew.json     # Dynamic build release notes catalog
 │       ├── Services/
-│       │   ├── Core/             # AppBuildInfo, WhatsNewProvider, NarrationEngine, ZipUtilities
+│       │   ├── Core/             # AppBuildInfo, WhatsNewProvider, NarrationEngine, ZipUtilities, SharedModels
 │       │   ├── Reader/           # CacheConfiguration, JITComicCacheEngine, PageBufferManager, PageOCRService
 │       │   ├── Reflow/           # PDFSpatialParser, ReflowDOMSynthesizer
 │       │   ├── State/            # ReaderProgressTracker, EBookPreferences, ReadingJumpTracker
 │       │   ├── Study/            # StudyNotebookStore, StudyCardScheduler, DeterministicStudyIndexer
-│       │   ├── Conversion/       # ConversionLedger, EInkOptimizer, ArchiveMutatorService
-│       │   └── Network/          # ComicVineRateTracker, CloudCoverExtractor, CloudDownloadManager
+│       │   ├── Conversion/       # ConversionLedger, EInkOptimizer, PageContentHasher, ArchiveMutatorService
+│       │   └── Network/          # ComicVineRateTracker, CloudCoverExtractor, CloudDownloadManager, WiFiServer, WiFiCertificateManager
 │       ├── Views/
 │       │   ├── Core/             # ContentView, WhatsNewInBuildSheet, AppLoadingScreenView, DesignSystem
 │       │   ├── Library/          # LibraryGridView, ModernLibraryView, ReadNowTabView, DualExportView
@@ -343,9 +393,9 @@ InksyncPro/
 │       │   │   └── Components/   # PDFOutlineDrawer, RSVPSpeedReadingView, KindleProgressFooterView
 │       │   ├── Notebook/         # GlobalNotebookView, StudyNotebookView, CornellNotesZoneView
 │       │   ├── Study/            # StudyNotebookContainerView, StudyDeckReviewView, CorkboardView
-│       │   ├── Settings/         # SettingsView, CloudSettingsView, EBookSettingsPanel
+│       │   ├── Settings/         # SettingsView, CloudSettingsView, EBookSettingsPanel, WiFiView
 │       │   └── Conversion/       # ConvertView, EInkOptimizer, ArchiveMutatorService
-│       └── Models/               # SDAnnotation, SDConvertedPDF, SDNotebook, StudyCard, StudyNote
+│       └── Models/               # SDAnnotation, SDConvertedPDF, SDNotebook, StudyCard, StudyNote, ReadingProgress
 └── docs/
     ├── InksyncPro_Product_Bible.md   # Authoritative Product Bible & Architecture Reference
     ├── SmartList_and_Readwise_Formats.md
@@ -356,6 +406,8 @@ InksyncPro/
 
 ## 13. Deployment & Release Verification Baseline
 
+> **Roadmap Scope:** System-Wide CI/CD Pipeline
+
 - **Latest Production Release Tag**: [`build-3330-latest`](https://github.com/cisidro93/InksyncPro/releases)
 - **Active Release Branch**: `ios-port`
 - **Compiler Status**: 0 Errors, 0 Concurrency Warnings (Swift 6.0 Complete Concurrency Checking)
@@ -363,9 +415,11 @@ InksyncPro/
 
 ---
 
-## 14. Worldwide Reader Systems & Zero-Strain Hardware Defense Architecture
+## 14. Hardware Defense Architecture
 
-Benchmarked across **KOReader, SumatraPDF, MuPDF, Moon+ Reader, Mihon, reMarkable OS, and Onyx Boox NeoReader**, InksyncPro implements strict hardware-efficiency boundaries to ensure the app never strains device battery, RAM, or CPU:
+> **Roadmap Scope:** Core Architectural Foundation (Applies to all Tiers)
+
+Benchmarked across leading mobile and e-ink reading engines, InksyncPro implements strict hardware-efficiency boundaries to ensure the app never strains device battery, RAM, or CPU:
 
 1. **EPUB Sliding-Window Snapshot Memory Capping ($N \pm 4$, Max 9 Textures):**
    - Eliminates unbounded GPU texture growth in reflowable WebKit curls. Page snapshot memory is strictly bounded to the active spread plus 4 adjacent pages forward and backward (`ReaderCacheLimits.epubSnapshotDistance = 4`), preventing multi-hundred-megabyte RAM bloat and keeping steady-state GPU RAM under 42MB [Measured on Apple A17 Pro / M4].
@@ -384,6 +438,8 @@ Benchmarked across **KOReader, SumatraPDF, MuPDF, Moon+ Reader, Mihon, reMarkabl
 
 ## 15. Security, Privacy & Threat Model
 
+> **Roadmap Scope:** Core Foundation & Tier 3 Network Boundaries
+
 InksyncPro is engineered with an on-device privacy-first architecture, treating user library documents and personal annotations as strictly confidential personal data:
 
 1. **iOS Data Protection & Storage Encryption:**
@@ -392,14 +448,17 @@ InksyncPro is engineered with an on-device privacy-first architecture, treating 
    - All third-party authentication tokens and API credentials (ComicVine API keys, Dropbox OAuth bearer tokens, Google Drive secrets) are stored exclusively in the Apple Keychain with device-scoped accessibility (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`). Tokens are never persisted in plaintext, `UserDefaults`, or unencrypted property lists.
 3. **Embedded Wi-Fi Server Threat Model:**
    - The local Wi-Fi transfer daemon (`WiFiServer`) binds strictly to local network interfaces and loopback; WAN port forwarding is never initiated.
-   - Access requires a dynamic 4-digit numeric PIN generated on-device per session.
+   - Access requires a dynamic 6-digit numeric PIN generated on-device per session (1,000,000 combinations).
+   - Automated brute-force attacks are defeated via an immediate 5-attempt IP block threshold (`ipBlockThreshold = 5`, HTTP 403) and an artificial 500ms non-blocking response delay to prevent timing side-channels.
    - The server defaults to off, requires deliberate user activation in Settings, and automatically shuts down after 15 minutes of inactivity.
 4. **Zero Remote Telemetry or Tracking:**
    - InksyncPro contains zero third-party analytics SDKs, advertising frameworks, or remote telemetry beacons. All document parsing, OCR text recognition, and metadata processing occurs entirely on-device.
 
 ---
 
-## 16. Accessibility & Inclusivity Baseline
+## 16. Accessibility, Inclusivity & Localization Baseline
+
+> **Roadmap Scope:** Core Architectural Foundation (Tier 1 Baseline)
 
 InksyncPro treats accessibility as a foundational engineering requirement rather than a secondary cosmetic overlay:
 
@@ -414,10 +473,15 @@ InksyncPro treats accessibility as a foundational engineering requirement rather
    - Curated high-contrast reading themes (Pure Black OLED, Warm Sepia, High-Contrast White-on-Black) engineered to minimize visual fatigue.
 4. **Hardware Keyboard Navigation:**
    - Comprehensive iPad hardware keyboard shortcuts: Space / Shift-Space (page forward / back), Left / Right Arrow (page step), Cmd+F (search), Cmd+H (highlight toggle), and Esc (dismiss chrome).
+5. **Localization Scope:**
+   - English (US) is the launch baseline (`en-US`).
+   - All user-facing strings are decoupled from views into standard Apple String Catalogs (`Localizable.xcstrings`), ensuring complete isolation of interface copy ready for Tier 2/3 multi-language localization (Spanish, Japanese, French, German).
 
 ---
 
 ## 17. Non-Goals & System Boundaries
+
+> **Roadmap Scope:** System Scope Invariants
 
 To protect architectural simplicity, prevent scope creep, and avoid legal/security hazards, the following capabilities are explicitly defined as out-of-scope non-goals:
 

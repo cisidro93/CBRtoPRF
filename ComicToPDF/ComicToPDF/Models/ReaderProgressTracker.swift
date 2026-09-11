@@ -61,7 +61,12 @@ extension ReadingProgress {
     static func merge(local: ReadingProgress, remote: ReadingProgress) -> ReadingProgress {
         var merged = local
 
-        // Determine which record represents the furthest reading progression
+        // Determine latest active interaction timestamps
+        let localLatestActivity = local.sessionEvents?.last?.date ?? local.lastOpenedAt
+        let remoteLatestActivity = remote.sessionEvents?.last?.date ?? remote.lastOpenedAt
+        let timeDifference = localLatestActivity.timeIntervalSince(remoteLatestActivity)
+
+        // Evaluate positional difference
         let remoteIsFurther: Bool
         if let remoteChapter = remote.currentChapterIndex, let localChapter = local.currentChapterIndex {
             if remoteChapter != localChapter {
@@ -75,7 +80,20 @@ extension ReadingProgress {
                              (remote.completionFraction == local.completionFraction && remote.currentPageIndex > local.currentPageIndex)
         }
 
+        // Intentional regression defense:
+        // If the device with the earlier page position had a distinctly newer active reading session
+        // (i.e. user deliberately navigated back to reread > 60s after the other device was opened),
+        // preserve that deliberate position rather than forcefully snapping forward to a stale furthest point.
+        let adoptRemotePosition: Bool
         if remoteIsFurther {
+            let isLocalIntentionalReread = timeDifference > 60
+            adoptRemotePosition = !isLocalIntentionalReread
+        } else {
+            let isRemoteIntentionalReread = timeDifference < -60
+            adoptRemotePosition = isRemoteIntentionalReread
+        }
+
+        if adoptRemotePosition {
             merged.currentPageIndex = remote.currentPageIndex
             merged.currentChapterIndex = remote.currentChapterIndex
             merged.currentChapterOffset = remote.currentChapterOffset
@@ -83,6 +101,14 @@ extension ReadingProgress {
             merged.currentCFI = remote.currentCFI ?? local.currentCFI
             merged.lastCanonicalLeadIndex = remote.lastCanonicalLeadIndex
             merged.wasInDualPageMode = remote.wasInDualPageMode
+        } else {
+            merged.currentPageIndex = local.currentPageIndex
+            merged.currentChapterIndex = local.currentChapterIndex
+            merged.currentChapterOffset = local.currentChapterOffset
+            merged.completionFraction = local.completionFraction
+            merged.currentCFI = local.currentCFI ?? remote.currentCFI
+            merged.lastCanonicalLeadIndex = local.lastCanonicalLeadIndex
+            merged.wasInDualPageMode = local.wasInDualPageMode
         }
 
         // Always take maximum lifetime pages read and newest access timestamp
@@ -103,7 +129,7 @@ extension ReadingProgress {
         }
         merged.readingSessionDates = uniqueDates
 
-        // Union session events (deduplicate within 60s windows, sort chronologically, cap at 200)
+        // Union session events (deduplicate within 60s windows, sort chronologically, cap at 200 via FIFO eviction)
         var events = (local.sessionEvents ?? []) + (remote.sessionEvents ?? [])
         events.sort { $0.date < $1.date }
         var deduplicatedEvents: [ReadingSessionEvent] = []
@@ -113,6 +139,7 @@ extension ReadingProgress {
             }
             deduplicatedEvents.append(event)
         }
+        // Explicit FIFO (First-In-First-Out) eviction: oldest session records beyond the 200 cap are dropped
         if deduplicatedEvents.count > 200 {
             deduplicatedEvents.removeFirst(deduplicatedEvents.count - 200)
         }

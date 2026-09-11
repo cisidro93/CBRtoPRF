@@ -501,6 +501,14 @@ final class WiFiServer: ObservableObject, Sendable {
         guard parts.count >= 2 else { return }
         
         // 1. Check Authentication (Cookie / Custom Headers)
+        sessionLock.lock()
+        let isIPBlocked = blockedIPs.contains(context.remoteIP)
+        sessionLock.unlock()
+        if isIPBlocked {
+            sendResponse(connection, 403, "Blocked: too many failed attempts.")
+            return
+        }
+
         var sessionToken: String?
         var pinHeader: String?
         for line in lines {
@@ -531,8 +539,22 @@ final class WiFiServer: ObservableObject, Sendable {
             sessionLock.unlock()
         }
         
-        if let pin = pinHeader, pin == self.securityCode {
-            context.isAuthenticated = true
+        if let pin = pinHeader {
+            if pin == self.securityCode {
+                context.isAuthenticated = true
+                sessionLock.lock()
+                failedAttempts[context.remoteIP] = 0
+                sessionLock.unlock()
+            } else {
+                sessionLock.lock()
+                let current = failedAttempts[context.remoteIP, default: 0] + 1
+                failedAttempts[context.remoteIP] = current
+                if current >= ipBlockThreshold {
+                    blockedIPs.insert(context.remoteIP)
+                    Logger.shared.log("WiFiServer: IP \(context.remoteIP) blocked after \(current) failed header PIN attempts", category: "Network", type: .error)
+                }
+                sessionLock.unlock()
+            }
         }
         
         let method = parts[0]
@@ -719,7 +741,10 @@ final class WiFiServer: ObservableObject, Sendable {
                 sessionLock.unlock()
 
                 let html = generateLoginPage(error: "Invalid PIN")
-                sendResponse(connection, 401, html, contentType: "text/html")
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    self.sendResponse(connection, 401, html, contentType: "text/html")
+                }
             }
         } else {
              let html = generateLoginPage(error: "Invalid Format")
