@@ -11,6 +11,11 @@ final class PassthroughPKCanvasView: PKCanvasView {
     var pageIndex: Int = 0
     weak var associatedPage: PDFPage? = nil
     
+    private let internalUndoManager = UndoManager()
+    override var undoManager: UndoManager? {
+        return internalUndoManager
+    }
+    
     override init(frame: CGRect) {
         super.init(frame: frame)
         overrideUserInterfaceStyle = .light

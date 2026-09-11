@@ -10,6 +10,8 @@ public struct InksyncPenDockView: View {
 
     @ObservedObject var inkingState = InksyncInkingState.shared
     @ObservedObject var prefs = EBookPreferences.shared
+    var onUndo: (() -> Void)? = nil
+    var onRedo: (() -> Void)? = nil
     var onClearPage: (() -> Void)? = nil
     var onClose: (() -> Void)? = nil
 
@@ -21,7 +23,14 @@ public struct InksyncPenDockView: View {
     @GestureState private var dragOffset: CGSize = .zero
     @State private var accumulatedOffset: CGSize = .zero
 
-    public init(onClearPage: (() -> Void)? = nil, onClose: (() -> Void)? = nil) {
+    public init(
+        onUndo: (() -> Void)? = nil,
+        onRedo: (() -> Void)? = nil,
+        onClearPage: (() -> Void)? = nil,
+        onClose: (() -> Void)? = nil
+    ) {
+        self.onUndo = onUndo
+        self.onRedo = onRedo
         self.onClearPage = onClearPage
         self.onClose = onClose
     }
@@ -261,6 +270,33 @@ public struct InksyncPenDockView: View {
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 4)
+            }
+
+            // Undo & Redo Controls
+            HStack(spacing: 3) {
+                Button {
+                    onUndo?()
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .padding(6)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Undo (2-Finger Tap)")
+
+                Button {
+                    onRedo?()
+                } label: {
+                    Image(systemName: "arrow.uturn.forward")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .padding(6)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Redo (3-Finger Tap)")
             }
 
             // Close / Exit Markup Mode

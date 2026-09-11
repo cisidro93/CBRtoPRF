@@ -256,6 +256,60 @@ public final class PDFPageCanvasProvider: NSObject, PKCanvasViewDelegate {
 
     // MARK: - Actions
 
+    public func undo(for pageIndex: Int) -> Bool {
+        for canvas in pageCanvases.values where canvas.pageIndex == pageIndex {
+            if canvas.undoManager?.canUndo == true {
+                canvas.undoManager?.undo()
+                return true
+            }
+        }
+        return false
+    }
+
+    public func redo(for pageIndex: Int) -> Bool {
+        for canvas in pageCanvases.values where canvas.pageIndex == pageIndex {
+            if canvas.undoManager?.canRedo == true {
+                canvas.undoManager?.redo()
+                return true
+            }
+        }
+        return false
+    }
+
+    public func undoVisible(preferredPageIndex: Int? = nil) -> Bool {
+        if let preferred = preferredPageIndex, undo(for: preferred) {
+            return true
+        }
+        for canvas in pageCanvases.values {
+            if canvas.undoManager?.canUndo == true {
+                canvas.undoManager?.undo()
+                return true
+            }
+        }
+        return false
+    }
+
+    public func redoVisible(preferredPageIndex: Int? = nil) -> Bool {
+        if let preferred = preferredPageIndex, redo(for: preferred) {
+            return true
+        }
+        for canvas in pageCanvases.values {
+            if canvas.undoManager?.canRedo == true {
+                canvas.undoManager?.redo()
+                return true
+            }
+        }
+        return false
+    }
+
+    public func canUndo(for pageIndex: Int) -> Bool {
+        return pageCanvases.values.contains { $0.pageIndex == pageIndex && $0.undoManager?.canUndo == true }
+    }
+
+    public func canRedo(for pageIndex: Int) -> Bool {
+        return pageCanvases.values.contains { $0.pageIndex == pageIndex && $0.undoManager?.canRedo == true }
+    }
+
     public func clearDrawing(for pageIndex: Int) {
         for canvas in pageCanvases.values where canvas.pageIndex == pageIndex {
             canvas.drawing = PKDrawing()

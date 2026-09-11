@@ -76,6 +76,17 @@ struct ProPDFReaderEngine: View {
     @State private var passwordErrorMessage: String? = nil
     @State private var pendingLockedDocument: PDFDocument? = nil
 
+    // Undo / Redo Markup Action History
+    struct MarkupHistoryItem: Sendable {
+        let id: UUID
+        let pageIndex: Int
+        let text: String
+        let color: PDFHighlightColor
+        let style: AnnotationMarkupStyle
+    }
+    @State private var recentMarkupHistory: [MarkupHistoryItem] = []
+    @State private var undoneMarkupHistory: [MarkupHistoryItem] = []
+
     private var totalPages: Int {
         pdfDocument?.pageCount ?? pdf.pageCount
     }
@@ -380,6 +391,17 @@ struct ProPDFReaderEngine: View {
                 }
             }
             return .handled
+        }
+        .onKeyPress(characters: "z", phases: .down) { press in
+            if press.modifiers.contains(.command) {
+                if press.modifiers.contains(.shift) {
+                    performRedo()
+                } else {
+                    performUndo()
+                }
+                return .handled
+            }
+            return .ignored
         }
         .task {
             // Reset filter to original on every open so a persisted color-invert
@@ -704,6 +726,12 @@ struct ProPDFReaderEngine: View {
                         isPencilMode = true
                     }
                     HapticEngine.medium()
+                },
+                onUndoRequested: { pageIdx in
+                    performUndo(preferredPageIndex: pageIdx)
+                },
+                onRedoRequested: { pageIdx in
+                    performRedo(preferredPageIndex: pageIdx)
                 }
             )
             .applyFilterPreset(activeFilterPreset)
@@ -713,6 +741,12 @@ struct ProPDFReaderEngine: View {
                 VStack {
                     Spacer()
                     InksyncPenDockView(
+                        onUndo: {
+                            performUndo()
+                        },
+                        onRedo: {
+                            performRedo()
+                        },
                         onClearPage: {
                             clearCurrentPageMarkup()
                         },
@@ -1943,9 +1977,61 @@ struct ProPDFReaderEngine: View {
         if let doc = activeDoc {
             PDFAnnotationSyncBridge.shared.scheduleDebouncedDiskSync(for: pdf.id, in: doc, at: resolvedURL)
         }
+        recentMarkupHistory.append(MarkupHistoryItem(id: annotationID, pageIndex: targetPageIndex, text: text, color: color, style: style))
+        undoneMarkupHistory.removeAll()
         activeSelectionSnapshot = nil
         showToastMessage(toastTitle)
         HapticEngine.selection()
+    }
+
+    // MARK: - Multi-Touch Undo & Redo Pipeline
+
+    private func performUndo(preferredPageIndex: Int? = nil) {
+        let targetPage = preferredPageIndex ?? currentPageIndex
+        let coordinator = pdfViewReference?.delegate as? ProPDFViewRepresentable.Coordinator
+
+        // 1. Try canvas stroke undo first
+        if coordinator?.canvasProvider.undoVisible(preferredPageIndex: targetPage) == true {
+            HapticEngine.medium()
+            showToastMessage("Undo")
+            return
+        }
+
+        // 2. Try native markup annotation undo
+        if let lastMarkup = recentMarkupHistory.popLast() {
+            undoneMarkupHistory.append(lastMarkup)
+            removeAnnotation(id: lastMarkup.id, pageIndex: lastMarkup.pageIndex)
+            HapticEngine.medium()
+            showToastMessage("Undo Highlight")
+            return
+        }
+
+        HapticEngine.light()
+        showToastMessage("Nothing to Undo")
+    }
+
+    private func performRedo(preferredPageIndex: Int? = nil) {
+        let targetPage = preferredPageIndex ?? currentPageIndex
+        let coordinator = pdfViewReference?.delegate as? ProPDFViewRepresentable.Coordinator
+
+        // 1. Try canvas stroke redo first
+        if coordinator?.canvasProvider.redoVisible(preferredPageIndex: targetPage) == true {
+            HapticEngine.medium()
+            showToastMessage("Redo")
+            return
+        }
+
+        // 2. Try native markup annotation redo
+        if let redoMarkup = undoneMarkupHistory.popLast() {
+            recentMarkupHistory.append(redoMarkup)
+            saveMarkup(text: redoMarkup.text, color: redoMarkup.color, style: redoMarkup.style)
+            HapticEngine.medium()
+            showToastMessage("Redo Highlight")
+            return
+        }
+
+        HapticEngine.light()
+        showToastMessage("Nothing to Redo")
     }
 
     private func saveHighlight(text: String, color: PDFHighlightColor) {
@@ -2453,6 +2539,8 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
     var onScaleChanged: ((CGFloat) -> Void)? = nil
     var onHyperlinkSelected: ((Int, PDFPage) -> Void)? = nil
     var onScannedPageDetected: (() -> Void)? = nil
+    var onUndoRequested: ((Int) -> Void)? = nil
+    var onRedoRequested: ((Int) -> Void)? = nil
 
     func makeUIView(context: Context) -> PDFView {
         let pdfView = ProPDFHighlightableView()
@@ -2515,6 +2603,31 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         pdfView.addGestureRecognizer(doubleTap)
         // Single-tap must wait for double-tap to fail — standard iOS pattern
         tapGesture.require(toFail: doubleTap)
+
+        // ── 3-Finger Tap Redo shortcut (finger only) ──────────────────────────────
+        let threeFingerTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleThreeFingerTap(_:)))
+        threeFingerTap.numberOfTouchesRequired = 3
+        threeFingerTap.numberOfTapsRequired = 1
+        threeFingerTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        threeFingerTap.cancelsTouchesInView = false
+        threeFingerTap.delegate = context.coordinator
+        pdfView.addGestureRecognizer(threeFingerTap)
+        context.coordinator.threeFingerTap = threeFingerTap
+
+        // ── 2-Finger Tap Undo shortcut (finger only) ──────────────────────────────
+        let twoFingerTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTwoFingerTap(_:)))
+        twoFingerTap.numberOfTouchesRequired = 2
+        twoFingerTap.numberOfTapsRequired = 1
+        twoFingerTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        twoFingerTap.cancelsTouchesInView = false
+        twoFingerTap.delegate = context.coordinator
+        // Require threeFingerTap to fail so 3-finger taps NEVER trigger a 2-finger undo if one touch lands slightly late
+        twoFingerTap.require(toFail: threeFingerTap)
+        pdfView.addGestureRecognizer(twoFingerTap)
+        context.coordinator.twoFingerTap = twoFingerTap
+
+        // Single-tap page turn must wait for 2-finger tap to fail so multi-finger gestures don't turn the page
+        tapGesture.require(toFail: twoFingerTap)
 
         // ── Finger Glide (word-snap) highlight gesture (finger only) ─────────────
         // 180ms minimum press duration allows normal scrolling/swiping without triggering text selection.
@@ -2699,6 +2812,10 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         NotificationCenter.default.removeObserver(coordinator, name: .PDFViewSelectionChanged, object: uiView)
         NotificationCenter.default.removeObserver(coordinator, name: .PDFViewScaleChanged, object: uiView)
         uiView.gestureRecognizers?.forEach { uiView.removeGestureRecognizer($0) }
+        coordinator.twoFingerTap = nil
+        coordinator.threeFingerTap = nil
+        coordinator.fingerGlide = nil
+        coordinator.pencilGlide = nil
         uiView.delegate = nil
         uiView.document = nil
     }
@@ -2721,6 +2838,8 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         // Strong references to glide gesture recognizers for dynamic state gating
         var fingerGlide: UILongPressGestureRecognizer? = nil
         var pencilGlide: UILongPressGestureRecognizer? = nil
+        var twoFingerTap: UITapGestureRecognizer? = nil
+        var threeFingerTap: UITapGestureRecognizer? = nil
 
         private enum ActiveDragTarget {
             case none
@@ -2944,6 +3063,12 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer === twoFingerTap || otherGestureRecognizer === twoFingerTap ||
+               gestureRecognizer === threeFingerTap || otherGestureRecognizer === threeFingerTap {
+                if otherGestureRecognizer is UITapGestureRecognizer || otherGestureRecognizer is UILongPressGestureRecognizer {
+                    return false
+                }
+            }
             if parent.isPencilMode && InksyncInkingState.shared.activeToolMode != .textHighlight {
                 if gestureRecognizer === pencilGlide || gestureRecognizer === fingerGlide ||
                    otherGestureRecognizer === pencilGlide || otherGestureRecognizer === fingerGlide {
@@ -3082,6 +3207,34 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
             }
             let effectiveScale = pdfView.scaleFactor / max(0.01, fitScale)
             self.parent.onScaleChanged?(effectiveScale)
+        }
+
+        // MARK: - Multi-Touch Undo & Redo Gesture Handlers
+
+        @MainActor @objc func handleTwoFingerTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended else { return }
+            guard let pdfView = gesture.view as? PDFView else { return }
+            let location = gesture.location(in: pdfView)
+            let targetPage: Int
+            if let page = pdfView.page(for: location, nearest: true), let doc = pdfView.document {
+                targetPage = doc.index(for: page)
+            } else {
+                targetPage = parent.currentPageIndex
+            }
+            parent.onUndoRequested?(targetPage)
+        }
+
+        @MainActor @objc func handleThreeFingerTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended else { return }
+            guard let pdfView = gesture.view as? PDFView else { return }
+            let location = gesture.location(in: pdfView)
+            let targetPage: Int
+            if let page = pdfView.page(for: location, nearest: true), let doc = pdfView.document {
+                targetPage = doc.index(for: page)
+            } else {
+                targetPage = parent.currentPageIndex
+            }
+            parent.onRedoRequested?(targetPage)
         }
 
         @MainActor @objc func scaleChanged(_ notification: Notification) {
