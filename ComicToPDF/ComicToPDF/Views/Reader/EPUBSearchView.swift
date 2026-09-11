@@ -28,6 +28,7 @@ struct EPUBSearchView: View {
     @State private var query = ""
     @State private var results: [EPUBSearchResult] = []
     @State private var isSearching = false
+    @State private var currentSearchTask: Task<Void, Never>? = nil
     @FocusState private var fieldFocused: Bool
 
     var body: some View {
@@ -122,6 +123,10 @@ struct EPUBSearchView: View {
             }
         }
         .onAppear { fieldFocused = true }
+        .onDisappear {
+            currentSearchTask?.cancel()
+            currentSearchTask = nil
+        }
     }
 
     // MARK: - Search Logic
@@ -130,15 +135,17 @@ struct EPUBSearchView: View {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty, let dir = unzipDir else { return }
 
+        currentSearchTask?.cancel()
         isSearching = true
         results = []
         fieldFocused = false
 
         let spine = spineItems
-        Task.detached(priority: .userInitiated) {
+        currentSearchTask = Task.detached(priority: .userInitiated) {
             var found: [EPUBSearchResult] = []
 
             for (idx, item) in spine.enumerated() {
+                guard !Task.isCancelled else { return }
                 var fileURL = dir.appendingPathComponent(item.href)
                 if !FileManager.default.fileExists(atPath: fileURL.path),
                    let decoded = item.href.removingPercentEncoding {
@@ -166,6 +173,7 @@ struct EPUBSearchView: View {
 
                 var chapCount = 0
                 while let matchRange = lower.range(of: qLower, range: searchFrom..<lower.endIndex) {
+                    guard !Task.isCancelled else { return }
                     let start = lower.index(matchRange.lowerBound, offsetBy: -60, limitedBy: lower.startIndex) ?? lower.startIndex
                     let end   = lower.index(matchRange.upperBound,  offsetBy:  80, limitedBy: lower.endIndex)  ?? lower.endIndex
                     let snippet = (start > lower.startIndex ? "…" : "")
@@ -185,6 +193,7 @@ struct EPUBSearchView: View {
                 }
             }
 
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 self.results = found
                 self.isSearching = false

@@ -1882,6 +1882,7 @@ struct ComicReaderEngine: View {
         .onDisappear {
             BackTapManager.shared.isEnabled = false
             cache.cancelAllPrefetchTasks()
+            saveCurrentProgress()
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerJumpToPage)) { notification in
             if let pageIndex = notification.userInfo?["pageIndex"] as? Int, pageIndex >= 0, pageIndex < cache.pageCount {

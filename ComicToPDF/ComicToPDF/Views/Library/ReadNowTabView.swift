@@ -180,7 +180,9 @@ struct ReadNowTabView: View {
             }
             .navigationTitle("Read Now")
             .navigationBarTitleDisplayMode(.large)
-            .fullScreenCover(item: $pdfToRead) { pdf in
+            .fullScreenCover(item: $pdfToRead, onDismiss: {
+                velocityVM.refresh(pdfs: conversionManager.convertedPDFs, tracker: tracker)
+            }) { pdf in
                 UnifiedReaderView(pdf: pdf, allBooks: conversionManager.convertedPDFs)
             }
             .onReceive(NotificationCenter.default.publisher(for: .openMergedBook)) { notif in
@@ -192,6 +194,9 @@ struct ReadNowTabView: View {
                 velocityVM.refresh(pdfs: conversionManager.convertedPDFs, tracker: tracker)
             }
             .onChange(of: conversionManager.convertedPDFs.count) { _, _ in
+                velocityVM.refresh(pdfs: conversionManager.convertedPDFs, tracker: tracker)
+            }
+            .onChange(of: tracker.allProgress.count) { _, _ in
                 velocityVM.refresh(pdfs: conversionManager.convertedPDFs, tracker: tracker)
             }
             .onReceive(NotificationCenter.default.publisher(for: .inkTabGoToLibraryRoot)) { _ in
