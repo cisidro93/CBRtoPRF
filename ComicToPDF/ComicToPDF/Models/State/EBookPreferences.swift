@@ -119,45 +119,103 @@ class EBookPreferences: ObservableObject {
     }
 
     // MARK: - PDF Specific Layouts
-    @AppStorage("pdf_dualPage") var pdfDualPage: Bool = false
-    @AppStorage("pdf_fitToWidth") var pdfFitToWidth: Bool = false
-    @AppStorage("pdf_rtlDirection") var pdfRTL: Bool = false
-    @AppStorage("autoLandscapeDualPage") var autoLandscapeDualPage: Bool = true
-    @AppStorage("pdf_glideHighlighting") var glideHighlighting: Bool = true
+    @AppStorage("pdf_dualPage") var pdfDualPage: Bool = false {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("pdf_fitToWidth") var pdfFitToWidth: Bool = false {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("pdf_rtlDirection") var pdfRTL: Bool = false {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("autoLandscapeDualPage") var autoLandscapeDualPage: Bool = true {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("pdf_glideHighlighting") var glideHighlighting: Bool = true {
+        didSet { objectWillChange.send() }
+    }
 
     // MARK: - Auto-Theme Scheduling
-    @AppStorage("ebook_autoThemeEnabled")   var isAutoThemeEnabled: Bool = false
-    @AppStorage("ebook_dayThemeRaw")         var dayThemeRaw: String       = EBookTheme.paper.rawValue
-    @AppStorage("ebook_nightThemeRaw")       var nightThemeRaw: String     = EBookTheme.night.rawValue
-    @AppStorage("ebook_autoThemeStartHour")  var autoThemeStartHour: Int   = 20 // 8:00 PM
-    @AppStorage("ebook_autoThemeEndHour")    var autoThemeEndHour: Int     = 7  // 7:00 AM
+    @AppStorage("ebook_autoThemeEnabled")   var isAutoThemeEnabled: Bool = false {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_dayThemeRaw")         var dayThemeRaw: String       = EBookTheme.paper.rawValue {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_nightThemeRaw")       var nightThemeRaw: String     = EBookTheme.night.rawValue {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_autoThemeStartHour")  var autoThemeStartHour: Int   = 20 { // 8:00 PM
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_autoThemeEndHour")    var autoThemeEndHour: Int     = 7 {  // 7:00 AM
+        didSet { objectWillChange.send() }
+    }
 
     // MARK: - PDF & Comic White-Margin Auto-Crop Sensitivity
-    @AppStorage("ebook_isSmartCropEnabled")   var isSmartCropEnabled: Bool   = false
-    @AppStorage("ebook_autoCropSensitivity")  var autoCropSensitivity: Double = 0.10 // 10% threshold (0.0 to 0.20)
-    @AppStorage("ebook_autoContrastLevel")    var autoContrastLevel: Double   = 1.0
-    @AppStorage("ebook_saturationLevel")      var saturationLevel: Double     = 1.0
-    @AppStorage("ebook_warmthLevel")          var warmthLevel: Double         = 0.0
-    @AppStorage("ebook_defaultCropModeRaw")   var defaultCropModeRaw: String = "none"
-    @AppStorage("ebook_defaultCropTop")       var defaultCropTop: Double     = 0.0
-    @AppStorage("ebook_defaultCropBottom")    var defaultCropBottom: Double  = 0.0
-    @AppStorage("ebook_defaultCropLeft")      var defaultCropLeft: Double    = 0.0
-    @AppStorage("ebook_defaultCropRight")     var defaultCropRight: Double   = 0.0
-    @AppStorage("ebook_isOddEvenCropEnabled") var isOddEvenCropEnabled: Bool = false
-    @AppStorage("ebook_evenPageGutterOffset") var evenPageGutterOffset: Double = 0.02
+    @AppStorage("ebook_isSmartCropEnabled")   var isSmartCropEnabled: Bool   = false {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_autoCropSensitivity")  var autoCropSensitivity: Double = 0.10 { // 10% threshold (0.0 to 0.20)
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_autoContrastLevel")    var autoContrastLevel: Double   = 1.0 {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_saturationLevel")      var saturationLevel: Double     = 1.0 {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_warmthLevel")          var warmthLevel: Double         = 0.0 {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_defaultCropModeRaw")   var defaultCropModeRaw: String = "none" {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_defaultCropTop")       var defaultCropTop: Double     = 0.0 {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_defaultCropBottom")    var defaultCropBottom: Double  = 0.0 {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_defaultCropLeft")      var defaultCropLeft: Double    = 0.0 {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_defaultCropRight")     var defaultCropRight: Double   = 0.0 {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_isOddEvenCropEnabled") var isOddEvenCropEnabled: Bool = false {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_evenPageGutterOffset") var evenPageGutterOffset: Double = 0.02 {
+        didSet { objectWillChange.send() }
+    }
 
     // MARK: - Academic Article / Column Mode
-    @AppStorage("pdf_isArticleMode")          var isArticleMode: Bool        = false
+    @AppStorage("pdf_isArticleMode")          var isArticleMode: Bool        = false {
+        didSet { objectWillChange.send() }
+    }
 
     // MARK: - Granular 4-Edge EPUB Margins
-    @AppStorage("ebook_textMarginTop")        var textMarginTop: Double      = 24.0
-    @AppStorage("ebook_textMarginBottom")     var textMarginBottom: Double   = 24.0
-    @AppStorage("ebook_textMarginLeft")       var textMarginLeft: Double     = 24.0
-    @AppStorage("ebook_textMarginRight")      var textMarginRight: Double    = 24.0
+    @AppStorage("ebook_textMarginTop")        var textMarginTop: Double      = 24.0 {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_textMarginBottom")     var textMarginBottom: Double   = 24.0 {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_textMarginLeft")       var textMarginLeft: Double     = 24.0 {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("ebook_textMarginRight")      var textMarginRight: Double    = 24.0 {
+        didSet { objectWillChange.send() }
+    }
 
     // MARK: - Panels-Style Persistent Lock Zoom
-    @AppStorage("pdf_isZoomLocked")           var isZoomLocked: Bool         = false
-    @AppStorage("pdf_lockedZoomScale")        var lockedZoomScale: Double    = 1.0
+    @AppStorage("pdf_isZoomLocked")           var isZoomLocked: Bool         = false {
+        didSet { objectWillChange.send() }
+    }
+    @AppStorage("pdf_lockedZoomScale")        var lockedZoomScale: Double    = 1.0 {
+        didSet { objectWillChange.send() }
+    }
 
     // MARK: - KyBook 3-Style RSVP Speed Reading
     @AppStorage("ebook_rsvpSpeedWPM")         var rsvpSpeedWPM: Double       = 350.0

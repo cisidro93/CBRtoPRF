@@ -171,7 +171,7 @@ final class PDFAnnotationSyncBridge {
     /// schedules debounced disk persistence, and returns true if an annotation was found and removed.
     @discardableResult
     @MainActor
-    func removeAnnotation(id: UUID, from document: PDFDocument, on pageIndex: Int? = nil, text: String? = nil, destinationURL: URL? = nil) -> Bool {
+    func removeAnnotation(id: UUID, from document: PDFDocument, on pageIndex: Int? = nil, text: String? = nil, destinationURL: URL? = nil, pdfID: UUID? = nil) -> Bool {
         var didRemove = false
         let idString = id.uuidString
         
@@ -201,7 +201,7 @@ final class PDFAnnotationSyncBridge {
         
         if didRemove {
             Logger.shared.log("PDFAnnotationSync: Removed annotation \(idString) from document", category: "PDF", type: .info)
-            scheduleDebouncedDiskSync(for: id, in: document, at: destinationURL)
+            scheduleDebouncedDiskSync(for: pdfID ?? id, in: document, at: destinationURL)
         }
         return didRemove
     }

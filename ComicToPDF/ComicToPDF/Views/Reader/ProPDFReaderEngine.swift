@@ -120,6 +120,10 @@ struct ProPDFReaderEngine: View {
     private func applyCropInsets(_ insets: CodableCropInsets) {
         guard let doc = pdfDocument else { return }
         self.activeCropInsets = insets
+        ReaderProgressTracker.shared.saveCropInsets(insets, for: pdf.id)
+        if prefs.defaultCropModeRaw != insets.modeRaw {
+            prefs.defaultCropModeRaw = insets.modeRaw
+        }
 
         if insets.modeRaw == "none" {
             isCroppedMode = false
@@ -368,6 +372,15 @@ struct ProPDFReaderEngine: View {
             advancePage(forward: true)
             return .handled
         }
+        .onKeyPress(KeyEquivalent("p")) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                isPencilMode.toggle()
+                if isPencilMode {
+                    InksyncInkingState.shared.activeToolMode = .write
+                }
+            }
+            return .handled
+        }
         .task {
             // Reset filter to original on every open so a persisted color-invert
             // filter from a previous session cannot corrupt page rendering appearance.
@@ -492,12 +505,24 @@ struct ProPDFReaderEngine: View {
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderToggleMarkupMode"))) { _ in
             withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
                 isPencilMode.toggle()
+                if isPencilMode {
+                    InksyncInkingState.shared.activeToolMode = .write
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderToggleSidebar"))) { _ in
             withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
                 showingOutlineDrawer.toggle()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderZoomIn"))) { _ in
+            adjustZoom(delta: 0.15)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderZoomOut"))) { _ in
+            adjustZoom(delta: -0.15)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderResetZoom"))) { _ in
+            resetZoomToFit()
         }
         .onChange(of: prefs.pdfReflowMode) { _, enabled in
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -699,6 +724,33 @@ struct ProPDFReaderEngine: View {
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .ignoresSafeArea(.keyboard)
+            } else if !chromeVisible && selectedTextForHUD == nil {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                                isPencilMode = true
+                                InksyncInkingState.shared.activeToolMode = .write
+                            }
+                            HapticEngine.medium()
+                        } label: {
+                            Image(systemName: "pencil.tip.crop.circle")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(.ultraThinMaterial, in: Circle())
+                                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
+                                .shadow(color: Color.black.opacity(0.25), radius: 8, y: 3)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 36)
+                        .help("Open Pen Toolbar (P)")
+                    }
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
         }
     }
@@ -748,17 +800,109 @@ struct ProPDFReaderEngine: View {
         }
     }
 
+    private func adjustZoom(delta: CGFloat) {
+        guard let pv = pdfViewReference else { return }
+        let fitScale = max(0.001, pv.scaleFactorForSizeToFit)
+        let currentScale = pv.scaleFactor
+        let newScale = max(fitScale * 0.4, min(fitScale * 6.0, currentScale + (fitScale * delta)))
+
+        UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut]) {
+            pv.scaleFactor = newScale
+        }
+
+        let effectiveScale = newScale / fitScale
+        activeZoomScale = effectiveScale
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            showZoomPill = true
+        }
+
+        if prefs.isZoomLocked {
+            prefs.lockedZoomScale = newScale
+        }
+
+        startZoomPillTimer()
+        HapticEngine.selection()
+    }
+
+    private func resetZoomToFit() {
+        guard let pv = pdfViewReference else { return }
+        let fitScale = max(0.001, pv.scaleFactorForSizeToFit)
+
+        UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseOut]) {
+            pv.scaleFactor = fitScale
+        }
+
+        activeZoomScale = 1.0
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            showZoomPill = true
+        }
+
+        if prefs.isZoomLocked {
+            prefs.lockedZoomScale = fitScale
+        }
+
+        showToastMessage("Fit to Page (100%)")
+        startZoomPillTimer()
+        HapticEngine.medium()
+    }
+
+    private func startZoomPillTimer() {
+        zoomPillTask?.cancel()
+        zoomPillTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showZoomPill = false
+            }
+        }
+    }
+
     @ViewBuilder private var zoomPillHUD: some View {
         if showZoomPill {
             let scalePct = Int(round(activeZoomScale * 100))
             VStack {
                 HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11, weight: .bold))
-                    Text("\(scalePct)%")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                    Button {
+                        adjustZoom(delta: -0.10)
+                    } label: {
+                        Image(systemName: "minus")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 24, height: 24)
+                            .background(Color.white.opacity(0.12), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Zoom Out")
 
-                    Divider().frame(height: 12)
+                    Button {
+                        resetZoomToFit()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("\(scalePct)%")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                            if abs(activeZoomScale - 1.0) > 0.04 {
+                                Text("• Fit")
+                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Color.orange)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .help("Reset to Page Fit (100%)")
+
+                    Button {
+                        adjustZoom(delta: 0.10)
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 24, height: 24)
+                            .background(Color.white.opacity(0.12), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Zoom In")
+
+                    Divider().frame(height: 14)
 
                     Button {
                         HapticEngine.selection()
@@ -769,6 +913,7 @@ struct ProPDFReaderEngine: View {
                         } else {
                             showToastMessage("Zoom Unlocked")
                         }
+                        startZoomPillTimer()
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: prefs.isZoomLocked ? "lock.fill" : "lock.open")
@@ -779,10 +924,11 @@ struct ProPDFReaderEngine: View {
                         .foregroundStyle(prefs.isZoomLocked ? Color.orange : Color.white.opacity(0.85))
                     }
                     .buttonStyle(.plain)
+                    .help(prefs.isZoomLocked ? "Unlock Zoom" : "Lock Zoom Across Pages")
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .background(.ultraThinMaterial, in: Capsule())
                 .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
                 .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
@@ -1147,6 +1293,7 @@ struct ProPDFReaderEngine: View {
             isPDF: true,
             isReflowActive: isReflowMode,
             isAutoCropEnabled: activeCropInsets.isEnabled,
+            selectedCropMode: activeCropInsets.modeRaw,
             isMarkupActive: isPencilMode,
             onCropToggle: {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -1154,6 +1301,19 @@ struct ProPDFReaderEngine: View {
                         applyCropInsets(.none)
                     } else {
                         applyCropInsets(.smartAuto)
+                    }
+                }
+                HapticEngine.medium()
+            },
+            onCropModeSelected: { mode in
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    switch mode {
+                    case "smartAuto":
+                        applyCropInsets(.smartAuto)
+                    case "custom":
+                        applyCropInsets(prefs.defaultCodableCropInsets)
+                    default:
+                        applyCropInsets(.none)
                     }
                 }
                 HapticEngine.medium()
@@ -1171,6 +1331,9 @@ struct ProPDFReaderEngine: View {
             onMarkupToggle: {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
                     isPencilMode.toggle()
+                    if isPencilMode {
+                        InksyncInkingState.shared.activeToolMode = .write
+                    }
                 }
                 if isPencilMode {
                     showToastMessage("Pencil Markup Active")
@@ -1909,7 +2072,8 @@ struct ProPDFReaderEngine: View {
             from: doc,
             on: targetPage,
             text: text,
-            destinationURL: resolvedURL
+            destinationURL: resolvedURL,
+            pdfID: pdf.id
         )
         
         // 2. Remove from AnnotationStore and SwiftData
@@ -2318,8 +2482,10 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         fingerGlide.allowableMovement = 2000
         fingerGlide.cancelsTouchesInView = false
         fingerGlide.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        let inkingState = InksyncInkingState.shared
+        let isTextHighlightGlide = isPencilMode && (inkingState.activeToolMode == .textHighlight)
         fingerGlide.delegate = context.coordinator
-        fingerGlide.isEnabled = !isPencilMode
+        fingerGlide.isEnabled = isTextHighlightGlide || (!isPencilMode)
         pdfView.addGestureRecognizer(fingerGlide)
         context.coordinator.fingerGlide = fingerGlide
         // Single-tap only needs to wait for finger glide to fail
@@ -2333,7 +2499,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         pencilGlide.cancelsTouchesInView = false
         pencilGlide.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
         pencilGlide.delegate = context.coordinator
-        pencilGlide.isEnabled = !isPencilMode
+        pencilGlide.isEnabled = isTextHighlightGlide
         pdfView.addGestureRecognizer(pencilGlide)
         context.coordinator.pencilGlide = pencilGlide
 
@@ -2369,18 +2535,26 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
             uiView.autoScales = true
         }
 
-        if context.coordinator.fingerGlide?.isEnabled != !isPencilMode {
-            context.coordinator.fingerGlide?.isEnabled = !isPencilMode
-        }
-        if context.coordinator.pencilGlide?.isEnabled != !isPencilMode {
-            context.coordinator.pencilGlide?.isEnabled = !isPencilMode
-        }
+        let inkingState = InksyncInkingState.shared
+        let currentToolMode = inkingState.activeToolMode
 
-        if context.coordinator.canvasProvider.isMarkupActive != isPencilMode {
-            context.coordinator.canvasProvider.isMarkupActive = isPencilMode
+        let isCanvasMarkupActive = isPencilMode && (currentToolMode == .write || currentToolMode == .eraser)
+        if context.coordinator.canvasProvider.isMarkupActive != isCanvasMarkupActive {
+            context.coordinator.canvasProvider.isMarkupActive = isCanvasMarkupActive
         }
         if context.coordinator.canvasProvider.pdfID != pdf.id {
             context.coordinator.canvasProvider.pdfID = pdf.id
+        }
+
+        let isTextHighlightGlide = isPencilMode && (currentToolMode == .textHighlight)
+        let targetPencilGlide = isTextHighlightGlide
+        let targetFingerGlide = isTextHighlightGlide || (!isPencilMode)
+
+        if context.coordinator.pencilGlide?.isEnabled != targetPencilGlide {
+            context.coordinator.pencilGlide?.isEnabled = targetPencilGlide
+        }
+        if context.coordinator.fingerGlide?.isEnabled != targetFingerGlide {
+            context.coordinator.fingerGlide?.isEnabled = targetFingerGlide
         }
 
         let prefs = EBookPreferences.shared
@@ -2426,10 +2600,10 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
 
             let fitScale = uiView.scaleFactorForSizeToFit
             if fitScale > 0.001 {
-                uiView.minScaleFactor = fitScale
+                uiView.minScaleFactor = fitScale * 0.4
                 uiView.maxScaleFactor = fitScale * 8.0
                 if let sv = uiView.subviews.first(where: { $0 is UIScrollView }) as? UIScrollView {
-                    sv.minimumZoomScale = fitScale
+                    sv.minimumZoomScale = fitScale * 0.4
                     sv.maximumZoomScale = fitScale * 8.0
                 }
             }
@@ -2530,7 +2704,12 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         }
 
         @MainActor func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
-            InksyncInkingState.shared.toggleEraser()
+            if !parent.isPencilMode {
+                NotificationCenter.default.post(name: NSNotification.Name("ReaderToggleMarkupMode"), object: nil)
+                InksyncInkingState.shared.activeToolMode = .write
+            } else {
+                InksyncInkingState.shared.toggleEraser()
+            }
             HapticEngine.selection()
         }
 
@@ -2574,7 +2753,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
 
         // MARK: - Fluid Word-Snapping Glide Selection
         @MainActor @objc func handleGlideSelection(_ gesture: UILongPressGestureRecognizer) {
-            if parent.isPencilMode { return }
+            if parent.isPencilMode && InksyncInkingState.shared.activeToolMode != .textHighlight { return }
             guard let pdfView = gesture.view as? PDFView else { return }
             let locationInView = gesture.location(in: pdfView)
 
@@ -2709,7 +2888,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            if parent.isPencilMode {
+            if parent.isPencilMode && InksyncInkingState.shared.activeToolMode != .textHighlight {
                 if gestureRecognizer === pencilGlide || gestureRecognizer === fingerGlide {
                     return false
                 }
@@ -2718,7 +2897,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            if parent.isPencilMode {
+            if parent.isPencilMode && InksyncInkingState.shared.activeToolMode != .textHighlight {
                 if gestureRecognizer === pencilGlide || gestureRecognizer === fingerGlide ||
                    otherGestureRecognizer === pencilGlide || otherGestureRecognizer === fingerGlide {
                     return false
@@ -2742,6 +2921,10 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
 
         @MainActor @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             guard let view = gesture.view as? PDFView else { return }
+
+            if parent.isPencilMode && (InksyncInkingState.shared.activeToolMode == .write || InksyncInkingState.shared.activeToolMode == .eraser) {
+                return
+            }
 
             // If text is currently selected in PDFView, clear selection on single tap OUTSIDE the selection
             if let selection = view.currentSelection, let text = selection.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

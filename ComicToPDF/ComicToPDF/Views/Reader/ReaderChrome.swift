@@ -49,8 +49,10 @@ struct ReaderChrome: View {
     var isPDF: Bool = false
     var isReflowActive: Bool = false
     var isAutoCropEnabled: Bool = false
+    var selectedCropMode: String = "none"
     var isMarkupActive: Bool = false
     var onCropToggle: (() -> Void)? = nil
+    var onCropModeSelected: ((String) -> Void)? = nil
     var onManualCropToggle: (() -> Void)? = nil
     var onReflowToggle: (() -> Void)? = nil
     var onMarkupToggle: (() -> Void)? = nil
@@ -100,8 +102,10 @@ struct ReaderChrome: View {
         isPDF: Bool = false,
         isReflowActive: Bool = false,
         isAutoCropEnabled: Bool = false,
+        selectedCropMode: String = "none",
         isMarkupActive: Bool = false,
         onCropToggle: (() -> Void)? = nil,
+        onCropModeSelected: ((String) -> Void)? = nil,
         onManualCropToggle: (() -> Void)? = nil,
         onReflowToggle: (() -> Void)? = nil,
         onMarkupToggle: (() -> Void)? = nil,
@@ -137,8 +141,10 @@ struct ReaderChrome: View {
         self.isPDF = isPDF
         self.isReflowActive = isReflowActive
         self.isAutoCropEnabled = isAutoCropEnabled
+        self.selectedCropMode = selectedCropMode
         self.isMarkupActive = isMarkupActive
         self.onCropToggle = onCropToggle
+        self.onCropModeSelected = onCropModeSelected
         self.onManualCropToggle = onManualCropToggle
         self.onReflowToggle = onReflowToggle
         self.onMarkupToggle = onMarkupToggle
@@ -334,13 +340,35 @@ struct ReaderChrome: View {
 
                     if isPDF {
                         Menu {
-                            Button(action: { onCropToggle?() }) {
+                            Button(action: {
+                                onCropModeSelected?("smartAuto") ?? onCropToggle?()
+                            }) {
                                 Label(
-                                    isAutoCropEnabled ? "Disable Auto-Crop" : "Smart Auto-Crop",
-                                    systemImage: isAutoCropEnabled ? "crop.slash" : "sparkles"
+                                    selectedCropMode == "smartAuto" ? "Smart Auto-Crop (Active)" : "Smart Auto-Crop",
+                                    systemImage: selectedCropMode == "smartAuto" ? "checkmark.circle.fill" : "sparkles"
                                 )
                             }
-                            
+
+                            Button(action: {
+                                onCropModeSelected?("custom")
+                            }) {
+                                Label(
+                                    selectedCropMode == "custom" ? "Manual Margins (Active)" : "Manual Margins",
+                                    systemImage: selectedCropMode == "custom" ? "checkmark.circle.fill" : "slider.horizontal.3"
+                                )
+                            }
+
+                            Button(action: {
+                                onCropModeSelected?("none")
+                            }) {
+                                Label(
+                                    selectedCropMode == "none" ? "Full Page / No Crop (Active)" : "Full Page (No Crop)",
+                                    systemImage: selectedCropMode == "none" ? "checkmark.circle.fill" : "arrow.up.left.and.down.right"
+                                )
+                            }
+
+                            Divider()
+
                             if let onManual = onManualCropToggle {
                                 Button(action: onManual) {
                                     Label("Manual Visual Crop Editor...", systemImage: "viewfinder")

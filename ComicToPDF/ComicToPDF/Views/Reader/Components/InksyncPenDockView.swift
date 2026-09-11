@@ -80,8 +80,8 @@ public struct InksyncPenDockView: View {
     // MARK: - Main Dock Capsule
 
     private var mainDockCapsule: some View {
-        HStack(spacing: 12) {
-            // Drag handle / minimize button
+        HStack(spacing: 10) {
+            // Minimize button
             Button {
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
                     isMinimized = true
@@ -95,111 +95,149 @@ public struct InksyncPenDockView: View {
                     .background(.ultraThinMaterial, in: Circle())
             }
             .buttonStyle(.plain)
+            .help("Minimize Toolbar")
 
-            // 4 Favorite Tool Slots
-            HStack(spacing: 8) {
-                ForEach(0..<inkingState.favorites.count, id: \.self) { index in
-                    favoriteSlotButton(at: index)
+            // Kindle-Style Master Tool Mode Switcher
+            HStack(spacing: 4) {
+                ForEach(ReaderToolMode.allCases) { mode in
+                    let isSelected = inkingState.activeToolMode == mode
+                    Button {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                            inkingState.activeToolMode = mode
+                        }
+                        HapticEngine.selection()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: mode.iconSystemName)
+                                .font(.system(size: 13, weight: isSelected ? .bold : .medium))
+                            if isSelected {
+                                Text(mode.displayName)
+                                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                            }
+                        }
+                        .foregroundStyle(isSelected ? Color.white : Color.secondary)
+                        .padding(.horizontal, isSelected ? 10 : 7)
+                        .padding(.vertical, 6)
+                        .background(
+                            isSelected ? (mode == .textHighlight ? Color.inkOrange : Color.inkGreen) : Color.clear,
+                            in: Capsule()
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(3)
+            .background(Color.primary.opacity(0.06), in: Capsule())
 
             Divider()
                 .frame(height: 24)
                 .background(Color.secondary.opacity(0.3))
 
-            // Tool Type Selector
-            Menu {
-                ForEach(InkingToolKind.allCases, id: \.self) { kind in
-                    Button {
-                        inkingState.updateActiveKind(kind)
-                        HapticEngine.selection()
-                    } label: {
-                        Label(kind.displayName, systemImage: kind.iconSystemName)
+            if inkingState.activeToolMode == .write {
+                // 4 Favorite Tool Slots
+                HStack(spacing: 6) {
+                    ForEach(0..<inkingState.favorites.count, id: \.self) { index in
+                        favoriteSlotButton(at: index)
                     }
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: inkingState.activePreset.kind.iconSystemName)
-                        .font(.system(size: 15, weight: .medium))
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.secondary)
-                }
-                .foregroundStyle(inkingState.activePreset.color.color)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(.ultraThinMaterial, in: Capsule())
-            }
-            .buttonStyle(.plain)
 
-            // Active Color Chip Button
-            Button {
-                withAnimation {
-                    showColorPalette.toggle()
-                    if showColorPalette { showWidthSlider = false }
+                // Tool Type Selector
+                Menu {
+                    ForEach(InkingToolKind.allCases, id: \.self) { kind in
+                        Button {
+                            inkingState.updateActiveKind(kind)
+                            HapticEngine.selection()
+                        } label: {
+                            Label(kind.displayName, systemImage: kind.iconSystemName)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: inkingState.activePreset.kind.iconSystemName)
+                            .font(.system(size: 14, weight: .medium))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .foregroundStyle(inkingState.activePreset.color.color)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: Capsule())
                 }
-                HapticEngine.selection()
-            } label: {
-                Circle()
-                    .fill(inkingState.activePreset.color.color)
-                    .frame(width: 24, height: 24)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.primary.opacity(0.2), lineWidth: 1.5)
-                    )
-                    .shadow(color: inkingState.activePreset.color.color.opacity(0.35), radius: 3, y: 1)
-            }
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
 
-            // Stroke Width Button
-            Button {
-                withAnimation {
-                    showWidthSlider.toggle()
-                    if showWidthSlider { showColorPalette = false }
-                }
-                HapticEngine.selection()
-            } label: {
-                HStack(spacing: 3) {
+                // Active Color Chip Button
+                Button {
+                    withAnimation {
+                        showColorPalette.toggle()
+                        if showColorPalette { showWidthSlider = false }
+                    }
+                    HapticEngine.selection()
+                } label: {
                     Circle()
-                        .fill(Color.primary)
-                        .frame(
-                            width: max(3, min(14, inkingState.activePreset.width * 1.5)),
-                            height: max(3, min(14, inkingState.activePreset.width * 1.5))
+                        .fill(inkingState.activePreset.color.color)
+                        .frame(width: 22, height: 22)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.primary.opacity(0.2), lineWidth: 1.5)
                         )
-                    Text(String(format: "%.1f", inkingState.activePreset.width))
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                        .shadow(color: inkingState.activePreset.color.color.opacity(0.35), radius: 3, y: 1)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(.ultraThinMaterial, in: Capsule())
-            }
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
 
-            // Eraser Toggle
-            Button {
-                inkingState.toggleEraser()
-                HapticEngine.light()
-            } label: {
-                Image(systemName: inkingState.activePreset.kind == .eraser ? "eraser.fill" : "eraser")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(inkingState.activePreset.kind == .eraser ? Color.inkOrange : Color.secondary)
-                    .padding(6)
-                    .background(inkingState.activePreset.kind == .eraser ? Color.inkOrange.opacity(0.2) : Color.clear, in: Circle())
-            }
-            .buttonStyle(.plain)
-
-            // Clear Current Page Ink
-            Button {
-                showClearConfirmation = true
-                HapticEngine.light()
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 14, weight: .medium))
+                // Stroke Width Button
+                Button {
+                    withAnimation {
+                        showWidthSlider.toggle()
+                        if showWidthSlider { showColorPalette = false }
+                    }
+                    HapticEngine.selection()
+                } label: {
+                    HStack(spacing: 3) {
+                        Circle()
+                            .fill(Color.primary)
+                            .frame(
+                                width: max(3, min(12, inkingState.activePreset.width * 1.5)),
+                                height: max(3, min(12, inkingState.activePreset.width * 1.5))
+                            )
+                        Text(String(format: "%.1f", inkingState.activePreset.width))
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 5)
+                    .background(.ultraThinMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            } else if inkingState.activeToolMode == .textHighlight {
+                Text("Glide across text to highlight")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
-                    .padding(6)
+                    .padding(.horizontal, 4)
+            } else if inkingState.activeToolMode == .eraser {
+                // Clear Current Page Ink
+                Button {
+                    showClearConfirmation = true
+                    HapticEngine.light()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Clear Page")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(Color.primary.opacity(0.06), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("Pan, zoom & turn pages freely")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
             }
-            .buttonStyle(.plain)
 
             // Close / Exit Markup Mode
             if let onClose = onClose {
@@ -208,16 +246,17 @@ public struct InksyncPenDockView: View {
                     HapticEngine.medium()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.secondary)
                         .padding(6)
                         .background(.ultraThinMaterial, in: Circle())
                 }
                 .buttonStyle(.plain)
+                .help("Close Pen Toolbar")
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .background(
             Capsule()
                 .fill(.ultraThinMaterial)
@@ -364,22 +403,26 @@ public struct InksyncPenDockView: View {
             HapticEngine.medium()
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: inkingState.activePreset.kind.iconSystemName)
+                Image(systemName: inkingState.activeToolMode.iconSystemName)
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(inkingState.activePreset.color.color)
+                    .foregroundStyle(inkingState.activeToolMode == .textHighlight ? Color.inkOrange : inkingState.activePreset.color.color)
+                Text(inkingState.activeToolMode.displayName)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
                 Circle()
                     .fill(inkingState.activePreset.color.color)
                     .frame(width: 8, height: 8)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.vertical, 9)
             .background(
                 Capsule()
                     .fill(.ultraThinMaterial)
-                    .shadow(color: Color.black.opacity(0.2), radius: 8, y: 3)
-                    .overlay(Capsule().stroke(inkingState.activePreset.color.color.opacity(0.4), lineWidth: 1.5))
+                    .shadow(color: Color.black.opacity(0.25), radius: 8, y: 3)
+                    .overlay(Capsule().stroke(Color.primary.opacity(0.12), lineWidth: 1))
             )
         }
         .buttonStyle(.plain)
+        .help("Expand Pen Toolbar")
     }
 }

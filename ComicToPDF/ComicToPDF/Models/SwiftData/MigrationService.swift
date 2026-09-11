@@ -173,12 +173,17 @@ class MigrationService {
         
         var modified = false
         let colorMap: [String: String] = [
-            "yellow": "#FFD60A",
-            "blue":   "#007AFF",
-            "pink":   "#FF2D55",
-            "aqua":   "#32ADE6",
-            "orange": "#FF9F0A",
-            "purple": "#BF5AF2"
+            "yellow":   "#FFD60A",
+            "blue":     "#007AFF",
+            "pink":     "#FF2D55",
+            "aqua":     "#32ADE6",
+            "orange":   "#FF9F0A",
+            "purple":   "#BF5AF2",
+            "green":    "#30D158",
+            "gray":     "#8E8E93",
+            "grey":     "#8E8E93",
+            "charcoal": "#3A3A3C",
+            "black":    "#000000"
         ]
         
         for ann in annotations {

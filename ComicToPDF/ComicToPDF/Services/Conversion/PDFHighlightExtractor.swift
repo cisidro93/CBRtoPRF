@@ -67,9 +67,16 @@ fileprivate extension UIColor {
         var b: CGFloat = 0
         var a: CGFloat = 0
         
-        self.getRed(&r, green: &g, blue: &b, alpha: &a)
+        guard self.getRed(&r, green: &g, blue: &b, alpha: &a) else {
+            var white: CGFloat = 0
+            if self.getWhite(&white, alpha: &a) {
+                let rgb = Int(white * 255)
+                return String(format: "#%02x%02x%02x", rgb, rgb, rgb)
+            }
+            return "#8E8E93"
+        }
         
-        let rgb: Int = (Int)(r*255)<<16 | (Int)(g*255)<<8 | (Int)(b*255)<<0
+        let rgb: Int = (Int)(r * 255) << 16 | (Int)(g * 255) << 8 | (Int)(b * 255)
         return String(format: "#%06x", rgb)
     }
 }

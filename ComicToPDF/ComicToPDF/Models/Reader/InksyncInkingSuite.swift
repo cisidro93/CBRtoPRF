@@ -95,6 +95,35 @@ public struct InkingToolPreset: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+// MARK: - Kindle-Style Reader Tool Mode
+
+public enum ReaderToolMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case write          // Freehand Pencil / Ink writing (PKCanvasView)
+    case textHighlight  // Digital text highlight glide (snaps to words)
+    case eraser         // Precision / stroke eraser (PKCanvasView)
+    case read           // Pure reading / navigation mode (no inking, no text selection)
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .write: return "Pen"
+        case .textHighlight: return "Highlight"
+        case .eraser: return "Eraser"
+        case .read: return "Read"
+        }
+    }
+
+    public var iconSystemName: String {
+        switch self {
+        case .write: return "pencil.tip"
+        case .textHighlight: return "character.cursor.ibeam"
+        case .eraser: return "eraser.fill"
+        case .read: return "hand.point.up.left"
+        }
+    }
+}
+
 // MARK: - Inksync Inking State Manager
 
 @MainActor
@@ -107,6 +136,17 @@ public final class InksyncInkingState: ObservableObject {
 
     @Published public var favorites: [InkingToolPreset] {
         didSet { saveSettings() }
+    }
+
+    @Published public var activeToolMode: ReaderToolMode = .write {
+        didSet {
+            if activeToolMode == .eraser && activePreset.kind != .eraser {
+                toggleEraser()
+            } else if activeToolMode == .write && activePreset.kind == .eraser {
+                toggleEraser()
+            }
+            saveSettings()
+        }
     }
 
     @Published public var isDockVisible: Bool = true
@@ -132,6 +172,11 @@ public final class InksyncInkingState: ObservableObject {
     public func selectFavorite(at index: Int) {
         guard favorites.indices.contains(index) else { return }
         activePreset = favorites[index]
+        if activePreset.kind == .eraser {
+            activeToolMode = .eraser
+        } else {
+            activeToolMode = .write
+        }
     }
 
     public func updateActiveColor(_ newColor: InksyncInkColor) {
@@ -151,6 +196,11 @@ public final class InksyncInkingState: ObservableObject {
         } else if newKind != .highlighter && activePreset.width > 8.0 {
             activePreset.width = 2.0
         }
+        if newKind == .eraser {
+            activeToolMode = .eraser
+        } else {
+            activeToolMode = .write
+        }
         syncActiveWithFavorites()
     }
 
@@ -158,8 +208,14 @@ public final class InksyncInkingState: ObservableObject {
         if activePreset.kind == .eraser {
             // Restore first non-eraser favorite
             activePreset = favorites.first(where: { $0.kind != .eraser }) ?? favorites[0]
+            if activeToolMode == .eraser {
+                activeToolMode = .write
+            }
         } else {
             activePreset = InkingToolPreset(name: "Eraser", kind: .eraser, color: .charcoal, width: 10.0)
+            if activeToolMode != .eraser {
+                activeToolMode = .eraser
+            }
         }
     }
 
