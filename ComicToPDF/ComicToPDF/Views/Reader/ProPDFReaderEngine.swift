@@ -373,7 +373,9 @@ struct ProPDFReaderEngine: View {
         reapplyCurrentCropMode()
     }
 
-    var body: some View {
+    // MARK: - Reader View Composition & Sub-Expressions
+
+    @ViewBuilder private var baseReaderStack: some View {
         ZStack {
             // Deep black background with subtle ambient illumination
             Color.black
@@ -420,247 +422,278 @@ struct ProPDFReaderEngine: View {
             pdfNarrationHUD
             ReadingJumpToastOverlay()
             lockedPasswordOverlay
-        }
-        .overlay {
+
             if prefs.showReadingRuler {
                 ReadingRulerOverlay()
             }
         }
-        .focusable()
-        .focusEffectDisabled()
-        .onKeyPress(.leftArrow) {
-            advancePage(forward: false)
-            return .handled
+    }
+
+    private func handleDisappear() {
+        saveReadingProgress()
+        if let doc = pdfDocument {
+            PDFAnnotationSyncBridge.shared.syncStoreToDocument(for: pdf.id, in: doc)
         }
-        .onKeyPress(.rightArrow) {
-            advancePage(forward: true)
-            return .handled
-        }
-        .onKeyPress(.space) {
-            advancePage(forward: true)
-            return .handled
-        }
-        .onKeyPress(KeyEquivalent("p")) {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                isPencilMode.toggle()
-                if isPencilMode {
-                    InksyncInkingState.shared.activeToolMode = .write
-                }
-            }
-            return .handled
-        }
-        .onKeyPress(characters: "z", phases: .down) { press in
-            if press.modifiers.contains(.command) {
-                if press.modifiers.contains(.shift) {
-                    performRedo()
-                } else {
-                    performUndo()
-                }
-                return .handled
-            }
-            return .ignored
-        }
-        .task {
-            // Apply per-book theme profile if configured for this document
-            prefs.applyBookTheme(bookID: pdf.id.uuidString)
-            // Reset quick filter override so saved document theme takes precedence
-            activeFilterPreset = .original
-            isReflowMode = prefs.pdfReflowMode
-            AnnotationStore.shared.initialize(with: modelContext)
-            loadPDFDocument()
-        }
-        .onDisappear {
-            loadTask?.cancel()
-            zoomPillTask?.cancel()
-            chromeIdleTask?.cancel()
-            ambientColorTask?.cancel()
-            speechSynthesizer.stopSpeaking(at: .immediate)
-            pdfViewReference?.document = nil
-            pdfViewReference = nil
-            accessedSecurityScopedURL?.stopAccessingSecurityScopedResource()
-            accessedSecurityScopedURL = nil
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
-            // Hardware & Battery Defense: Purge off-screen caches and clear selection on low memory
-            selectedTextForHUD = nil
-            activeSelectionSnapshot = nil
-            ambientColorTask?.cancel()
-            ambientPageColor = .clear
-            pdfViewReference?.clearSelection()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
-            // Suspend narration and release transient UI resources when entering background
-            if isNarratingPDF {
-                speechSynthesizer.pauseSpeaking(at: .word)
-            }
-            selectedTextForHUD = nil
-            activeSelectionSnapshot = nil
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .readerJumpToPage)) { notification in
-            if let pageIndex = notification.userInfo?["pageIndex"] as? Int, pageIndex >= 0, pageIndex < totalPages {
-                jumpToPage(pageIndex)
-            }
-        }
-        .onChange(of: currentPageIndex) { _, newIndex in
-            saveReadingProgress()
-            extractAmbientColor(for: newIndex)
-        }
-        .sheet(isPresented: $showingOutlineDrawer) {
-            PDFOutlineDrawer(
-                pdf: pdf,
-                pdfDocument: pdfDocument,
-                currentPageIndex: currentPageIndex,
-                onJumpToPage: { pageIdx in
-                    jumpToPage(pageIdx)
-                },
-                onDismiss: {
-                    showingOutlineDrawer = false
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showingInspector) {
-            ProDocumentInspectorView(
-                pdf: pdf,
-                pdfDocument: pdfDocument,
-                currentPageIndex: currentPageIndex,
-                onJumpToPage: { pageIdx in
-                    jumpToPage(pageIdx)
-                },
-                onDeleteAnnotation: { ann in
-                    removeAnnotation(id: ann.id, pageIndex: ann.pageIndex)
-                },
-                onDismiss: {
-                    showingInspector = false
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showingPageManager) {
-            PDFPageManagerGridView(
-                pdf: pdf,
-                pdfDocument: pdfDocument,
-                onJumpToPage: { pageIdx in
-                    jumpToPage(pageIdx)
-                },
-                onDismiss: {
-                    showingPageManager = false
-                },
-                onDocumentModified: {
-                    handleDocumentModified()
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showingSettings) {
-            EBookSettingsPanel(bookID: pdf.id.uuidString, isPDF: true)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showCropAdjustmentSheet) {
-            ProCropAdjustmentSheet(
-                pdfID: pdf.id,
-                pdfDocument: pdfDocument,
-                currentPageIndex: currentPageIndex,
-                onApplyCrop: { insets in
-                    applyCropInsets(insets)
-                },
-                onDismiss: { showCropAdjustmentSheet = false }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openManualCropEditor)) { _ in
-            showCropAdjustmentSheet = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderAdvancePageForward"))) { _ in
-            advancePage(forward: true)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderAdvancePageBackward"))) { _ in
-            advancePage(forward: false)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderToggleMarkupMode"))) { _ in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                isPencilMode.toggle()
-                if isPencilMode {
-                    InksyncInkingState.shared.activeToolMode = .write
-                }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderToggleSidebar"))) { _ in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                showingOutlineDrawer.toggle()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderZoomIn"))) { _ in
-            adjustZoom(delta: 0.15)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderZoomOut"))) { _ in
-            adjustZoom(delta: -0.15)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderResetZoom"))) { _ in
-            resetZoomToFit()
-        }
-        .onChange(of: prefs.pdfReflowMode) { _, enabled in
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                isReflowMode = enabled
-            }
-        }
-        .onChange(of: prefs.defaultCropModeRaw) { _, newMode in
-            handleCropModeChange(newMode)
-        }
-        .onChange(of: prefs.defaultCropTop) { _, _ in
-            handleCustomCropInsetsChange()
-        }
-        .onChange(of: prefs.defaultCropBottom) { _, _ in
-            handleCustomCropInsetsChange()
-        }
-        .onChange(of: prefs.defaultCropLeft) { _, _ in
-            handleCustomCropInsetsChange()
-        }
-        .onChange(of: prefs.defaultCropRight) { _, _ in
-            handleCustomCropInsetsChange()
-        }
-        .onChange(of: prefs.isOddEvenCropEnabled) { _, _ in
-            handleOddEvenCropChange()
-        }
-        .onChange(of: prefs.evenPageGutterOffset) { _, _ in
-            handleGutterOffsetChange()
-        }
-        .onDisappear {
-            saveReadingProgress()
+        loadTask?.cancel()
+        zoomPillTask?.cancel()
+        chromeIdleTask?.cancel()
+        ambientColorTask?.cancel()
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        pdfViewReference?.document = nil
+        pdfViewReference = nil
+        accessedSecurityScopedURL?.stopAccessingSecurityScopedResource()
+        accessedSecurityScopedURL = nil
+    }
+
+    private func handleAnnotationsDidChange(_ notif: Notification) {
+        guard let targetPDFID = notif.userInfo?["pdfID"] as? UUID, targetPDFID == pdf.id else { return }
+        if let deletedID = notif.userInfo?["deletedID"] as? UUID {
+            // Safely detach from native PDF document without re-invoking store.delete
             if let doc = pdfDocument {
-                PDFAnnotationSyncBridge.shared.syncStoreToDocument(for: pdf.id, in: doc)
-            }
-            accessedSecurityScopedURL?.stopAccessingSecurityScopedResource()
-            accessedSecurityScopedURL = nil
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-            saveReadingProgress()
-            if let doc = pdfDocument {
-                PDFAnnotationSyncBridge.shared.syncStoreToDocument(for: pdf.id, in: doc)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .annotationsDidChange)) { notif in
-            guard let targetPDFID = notif.userInfo?["pdfID"] as? UUID, targetPDFID == pdf.id else { return }
-            if let deletedID = notif.userInfo?["deletedID"] as? UUID {
-                // Safely detach from native PDF document without re-invoking store.delete
-                if let doc = pdfDocument {
-                    PDFAnnotationSyncBridge.shared.removeAnnotation(id: deletedID, from: doc, destinationURL: resolvedURL)
-                    if let pv = pdfViewReference {
-                        forcePageRedraw(pv, pageIndex: currentPageIndex)
-                    }
-                }
-            } else if let doc = pdfDocument {
-                PDFAnnotationSyncBridge.shared.applyStoreAnnotations(for: pdf.id, to: doc)
+                PDFAnnotationSyncBridge.shared.removeAnnotation(id: deletedID, from: doc, destinationURL: resolvedURL)
                 if let pv = pdfViewReference {
                     forcePageRedraw(pv, pageIndex: currentPageIndex)
                 }
             }
+        } else if let doc = pdfDocument {
+            PDFAnnotationSyncBridge.shared.applyStoreAnnotations(for: pdf.id, to: doc)
+            if let pv = pdfViewReference {
+                forcePageRedraw(pv, pageIndex: currentPageIndex)
+            }
         }
+    }
+
+    @ViewBuilder
+    private func applyKeyboardShortcuts<Content: View>(to content: Content) -> some View {
+        content
+            .focusable()
+            .focusEffectDisabled()
+            .onKeyPress(.leftArrow) {
+                advancePage(forward: false)
+                return .handled
+            }
+            .onKeyPress(.rightArrow) {
+                advancePage(forward: true)
+                return .handled
+            }
+            .onKeyPress(.space) {
+                advancePage(forward: true)
+                return .handled
+            }
+            .onKeyPress(KeyEquivalent("p")) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                    isPencilMode.toggle()
+                    if isPencilMode {
+                        InksyncInkingState.shared.activeToolMode = .write
+                    }
+                }
+                return .handled
+            }
+            .onKeyPress(characters: "z", phases: .down) { press in
+                if press.modifiers.contains(.command) {
+                    if press.modifiers.contains(.shift) {
+                        performRedo()
+                    } else {
+                        performUndo()
+                    }
+                    return .handled
+                }
+                return .ignored
+            }
+    }
+
+    @ViewBuilder
+    private func applyCropObservers<Content: View>(to content: Content) -> some View {
+        content
+            .onChange(of: currentPageIndex) { _, newIndex in
+                saveReadingProgress()
+                extractAmbientColor(for: newIndex)
+            }
+            .onChange(of: prefs.pdfReflowMode) { _, enabled in
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    isReflowMode = enabled
+                }
+            }
+            .onChange(of: prefs.defaultCropModeRaw) { _, newMode in
+                handleCropModeChange(newMode)
+            }
+            .onChange(of: prefs.defaultCropTop) { _, _ in
+                handleCustomCropInsetsChange()
+            }
+            .onChange(of: prefs.defaultCropBottom) { _, _ in
+                handleCustomCropInsetsChange()
+            }
+            .onChange(of: prefs.defaultCropLeft) { _, _ in
+                handleCustomCropInsetsChange()
+            }
+            .onChange(of: prefs.defaultCropRight) { _, _ in
+                handleCustomCropInsetsChange()
+            }
+            .onChange(of: prefs.isOddEvenCropEnabled) { _, _ in
+                handleOddEvenCropChange()
+            }
+            .onChange(of: prefs.evenPageGutterOffset) { _, _ in
+                handleGutterOffsetChange()
+            }
+    }
+
+    @ViewBuilder
+    private func applySheets<Content: View>(to content: Content) -> some View {
+        content
+            .sheet(isPresented: $showingOutlineDrawer) {
+                PDFOutlineDrawer(
+                    pdf: pdf,
+                    pdfDocument: pdfDocument,
+                    currentPageIndex: currentPageIndex,
+                    onJumpToPage: { pageIdx in
+                        jumpToPage(pageIdx)
+                    },
+                    onDismiss: {
+                        showingOutlineDrawer = false
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showingInspector) {
+                ProDocumentInspectorView(
+                    pdf: pdf,
+                    pdfDocument: pdfDocument,
+                    currentPageIndex: currentPageIndex,
+                    onJumpToPage: { pageIdx in
+                        jumpToPage(pageIdx)
+                    },
+                    onDeleteAnnotation: { ann in
+                        removeAnnotation(id: ann.id, pageIndex: ann.pageIndex)
+                    },
+                    onDismiss: {
+                        showingInspector = false
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showingPageManager) {
+                PDFPageManagerGridView(
+                    pdf: pdf,
+                    pdfDocument: pdfDocument,
+                    onJumpToPage: { pageIdx in
+                        jumpToPage(pageIdx)
+                    },
+                    onDismiss: {
+                        showingPageManager = false
+                    },
+                    onDocumentModified: {
+                        handleDocumentModified()
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showingSettings) {
+                EBookSettingsPanel(bookID: pdf.id.uuidString, isPDF: true)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showCropAdjustmentSheet) {
+                ProCropAdjustmentSheet(
+                    pdfID: pdf.id,
+                    pdfDocument: pdfDocument,
+                    currentPageIndex: currentPageIndex,
+                    onApplyCrop: { insets in
+                        applyCropInsets(insets)
+                    },
+                    onDismiss: { showCropAdjustmentSheet = false }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+    }
+
+    @ViewBuilder
+    private func applyNotificationHandlers<Content: View>(to content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+                // Hardware & Battery Defense: Purge off-screen caches and clear selection on low memory
+                selectedTextForHUD = nil
+                activeSelectionSnapshot = nil
+                ambientColorTask?.cancel()
+                ambientPageColor = .clear
+                pdfViewReference?.clearSelection()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+                // Suspend narration and release transient UI resources when entering background
+                if isNarratingPDF {
+                    speechSynthesizer.pauseSpeaking(at: .word)
+                }
+                selectedTextForHUD = nil
+                activeSelectionSnapshot = nil
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+                saveReadingProgress()
+                if let doc = pdfDocument {
+                    PDFAnnotationSyncBridge.shared.syncStoreToDocument(for: pdf.id, in: doc)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .readerJumpToPage)) { notification in
+                if let pageIndex = notification.userInfo?["pageIndex"] as? Int, pageIndex >= 0, pageIndex < totalPages {
+                    jumpToPage(pageIndex)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openManualCropEditor)) { _ in
+                showCropAdjustmentSheet = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderAdvancePageForward"))) { _ in
+                advancePage(forward: true)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderAdvancePageBackward"))) { _ in
+                advancePage(forward: false)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderToggleMarkupMode"))) { _ in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                    isPencilMode.toggle()
+                    if isPencilMode {
+                        InksyncInkingState.shared.activeToolMode = .write
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderToggleSidebar"))) { _ in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                    showingOutlineDrawer.toggle()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderZoomIn"))) { _ in
+                adjustZoom(delta: 0.15)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderZoomOut"))) { _ in
+                adjustZoom(delta: -0.15)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReaderResetZoom"))) { _ in
+                resetZoomToFit()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .annotationsDidChange)) { notif in
+                handleAnnotationsDidChange(notif)
+            }
+    }
+
+    var body: some View {
+        let configured = baseReaderStack
+            .task {
+                // Apply per-book theme profile if configured for this document
+                prefs.applyBookTheme(bookID: pdf.id.uuidString)
+                // Reset quick filter override so saved document theme takes precedence
+                activeFilterPreset = .original
+                isReflowMode = prefs.pdfReflowMode
+                AnnotationStore.shared.initialize(with: modelContext)
+                loadPDFDocument()
+            }
+            .onDisappear {
+                handleDisappear()
+            }
+        let withKeys = applyKeyboardShortcuts(to: configured)
+        let withCrop = applyCropObservers(to: withKeys)
+        let withNotifications = applyNotificationHandlers(to: withCrop)
+        return applySheets(to: withNotifications)
     }
 
     // MARK: - Subviews for Fast Compiler Type-Checking
