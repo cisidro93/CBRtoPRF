@@ -316,6 +316,63 @@ struct ProPDFReaderEngine: View {
         }
     }
 
+    private func reapplyCurrentCropMode() {
+        if prefs.defaultCropModeRaw == "smartAuto" {
+            applyCropInsets(CodableCropInsets.smartAuto)
+        } else if prefs.defaultCropModeRaw == "custom" {
+            let insets = CodableCropInsets(
+                top: prefs.defaultCropTop,
+                bottom: prefs.defaultCropBottom,
+                left: prefs.defaultCropLeft,
+                right: prefs.defaultCropRight,
+                modeRaw: "custom"
+            )
+            applyCropInsets(insets)
+        } else {
+            applyCropInsets(CodableCropInsets.none)
+        }
+    }
+
+    private func handleCropModeChange(_ newMode: String) {
+        if newMode == "custom" {
+            let insets = CodableCropInsets(
+                top: prefs.defaultCropTop,
+                bottom: prefs.defaultCropBottom,
+                left: prefs.defaultCropLeft,
+                right: prefs.defaultCropRight,
+                modeRaw: "custom"
+            )
+            applyCropInsets(insets)
+        } else if newMode == "smartAuto" {
+            applyCropInsets(CodableCropInsets.smartAuto)
+        } else {
+            applyCropInsets(CodableCropInsets.none)
+        }
+    }
+
+    private func handleCustomCropInsetsChange() {
+        guard prefs.defaultCropModeRaw == "custom" else { return }
+        let insets = CodableCropInsets(
+            top: prefs.defaultCropTop,
+            bottom: prefs.defaultCropBottom,
+            left: prefs.defaultCropLeft,
+            right: prefs.defaultCropRight,
+            modeRaw: "custom"
+        )
+        applyCropInsets(insets)
+    }
+
+    private func handleOddEvenCropChange() {
+        if prefs.defaultCropModeRaw == "smartAuto" || prefs.defaultCropModeRaw == "custom" {
+            reapplyCurrentCropMode()
+        }
+    }
+
+    private func handleGutterOffsetChange() {
+        guard prefs.isOddEvenCropEnabled else { return }
+        reapplyCurrentCropMode()
+    }
+
     var body: some View {
         ZStack {
             // Deep black background with subtle ambient illumination
@@ -553,56 +610,25 @@ struct ProPDFReaderEngine: View {
             }
         }
         .onChange(of: prefs.defaultCropModeRaw) { _, newMode in
-            if newMode == "custom" {
-                let insets = CodableCropInsets(
-                    top: prefs.defaultCropTop,
-                    bottom: prefs.defaultCropBottom,
-                    left: prefs.defaultCropLeft,
-                    right: prefs.defaultCropRight,
-                    modeRaw: "custom"
-                )
-                applyCropInsets(insets)
-            } else if newMode == "smartAuto" {
-                applyCropInsets(.smartAuto)
-            } else {
-                applyCropInsets(.none)
-            }
+            handleCropModeChange(newMode)
         }
         .onChange(of: prefs.defaultCropTop) { _, _ in
-            if prefs.defaultCropModeRaw == "custom" {
-                applyCropInsets(CodableCropInsets(top: prefs.defaultCropTop, bottom: prefs.defaultCropBottom, left: prefs.defaultCropLeft, right: prefs.defaultCropRight, modeRaw: "custom"))
-            }
+            handleCustomCropInsetsChange()
         }
         .onChange(of: prefs.defaultCropBottom) { _, _ in
-            if prefs.defaultCropModeRaw == "custom" {
-                applyCropInsets(CodableCropInsets(top: prefs.defaultCropTop, bottom: prefs.defaultCropBottom, left: prefs.defaultCropLeft, right: prefs.defaultCropRight, modeRaw: "custom"))
-            }
+            handleCustomCropInsetsChange()
         }
         .onChange(of: prefs.defaultCropLeft) { _, _ in
-            if prefs.defaultCropModeRaw == "custom" {
-                applyCropInsets(CodableCropInsets(top: prefs.defaultCropTop, bottom: prefs.defaultCropBottom, left: prefs.defaultCropLeft, right: prefs.defaultCropRight, modeRaw: "custom"))
-            }
+            handleCustomCropInsetsChange()
         }
         .onChange(of: prefs.defaultCropRight) { _, _ in
-            if prefs.defaultCropModeRaw == "custom" {
-                applyCropInsets(CodableCropInsets(top: prefs.defaultCropTop, bottom: prefs.defaultCropBottom, left: prefs.defaultCropLeft, right: prefs.defaultCropRight, modeRaw: "custom"))
-            }
+            handleCustomCropInsetsChange()
         }
         .onChange(of: prefs.isOddEvenCropEnabled) { _, _ in
-            if prefs.defaultCropModeRaw == "smartAuto" {
-                applyCropInsets(.smartAuto)
-            } else if prefs.defaultCropModeRaw == "custom" {
-                applyCropInsets(CodableCropInsets(top: prefs.defaultCropTop, bottom: prefs.defaultCropBottom, left: prefs.defaultCropLeft, right: prefs.defaultCropRight, modeRaw: "custom"))
-            }
+            handleOddEvenCropChange()
         }
         .onChange(of: prefs.evenPageGutterOffset) { _, _ in
-            if prefs.isOddEvenCropEnabled {
-                if prefs.defaultCropModeRaw == "smartAuto" {
-                    applyCropInsets(.smartAuto)
-                } else if prefs.defaultCropModeRaw == "custom" {
-                    applyCropInsets(CodableCropInsets(top: prefs.defaultCropTop, bottom: prefs.defaultCropBottom, left: prefs.defaultCropLeft, right: prefs.defaultCropRight, modeRaw: "custom"))
-                }
-            }
+            handleGutterOffsetChange()
         }
         .onDisappear {
             saveReadingProgress()
