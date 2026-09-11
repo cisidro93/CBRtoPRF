@@ -153,7 +153,7 @@ public struct InksyncPenDockView: View {
 
                 // Tool Type Selector
                 Menu {
-                    ForEach(InkingToolKind.allCases, id: \.self) { kind in
+                    ForEach(InkingToolKind.allCases.filter { $0 != .eraser && $0 != .highlighter }, id: \.self) { kind in
                         Button {
                             inkingState.updateActiveKind(kind)
                             HapticEngine.selection()

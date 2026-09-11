@@ -780,11 +780,16 @@ struct ProPDFReaderEngine: View {
                     }
                 },
                 onHighlightRequested: {
-                    if let text = activeSelectionSnapshot?.text ?? selectedTextForHUD ?? pdfViewReference?.currentSelection?.string,
+                    if let sel = pdfViewReference?.currentSelection, let pg = sel.pages.first ?? pdfViewReference?.currentPage {
+                        saveMarkupFromSelection(selection: sel, page: pg, color: EBookPreferences.shared.defaultHighlightColor, style: .highlight)
+                    } else if let text = activeSelectionSnapshot?.text ?? selectedTextForHUD ?? pdfViewReference?.currentSelection?.string,
                        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         saveMarkup(text: text, color: EBookPreferences.shared.defaultHighlightColor, style: .highlight)
                         selectedTextForHUD = nil
                     }
+                },
+                onHighlightSelectionDirect: { selection, page, color in
+                    saveMarkupFromSelection(selection: selection, page: page, color: color, style: .highlight)
                 },
                 onScaleChanged: { scale in
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -2126,6 +2131,135 @@ struct ProPDFReaderEngine: View {
         showToastMessage("Nothing to Redo")
     }
 
+    /// Directly commits a native PDFKit highlight annotation from a resolved PDFSelection & PDFPage.
+    /// Bypasses asynchronous SwiftUI @State round-trips to eliminate race conditions during glide highlighting.
+    private func saveMarkupFromSelection(
+        selection: PDFSelection,
+        page: PDFPage,
+        color: PDFHighlightColor,
+        style: AnnotationMarkupStyle = .highlight
+    ) {
+        guard let text = selection.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard let doc = page.document ?? pdfViewReference?.document ?? pdfDocument else { return }
+
+        let targetPageIndex = doc.index(for: page)
+        guard targetPageIndex >= 0 else { return }
+
+        let highlightColor: UIColor
+        switch style {
+        case .underline, .strikeOut:
+            highlightColor = color.uiColor
+        case .highlight:
+            highlightColor = color.directHighlightUIColor
+        }
+
+        let annotationID = UUID()
+        let nativeType: PDFAnnotationSubtype
+        let annotationKind: Annotation.AnnotationKind
+        let toastTitle: String
+        switch style {
+        case .underline:
+            nativeType = .underline
+            annotationKind = .underline
+            toastTitle = "Underline Added"
+        case .strikeOut:
+            nativeType = .strikeOut
+            annotationKind = .strikeOut
+            toastTitle = "Strikethrough Added"
+        case .highlight:
+            nativeType = .highlight
+            annotationKind = .highlight
+            toastTitle = "Highlight Added"
+        }
+
+        page.displaysAnnotations = true
+
+        let lines = selection.selectionsByLine()
+        let targetLines = lines.isEmpty ? [selection] : lines
+        let validRects = targetLines.compactMap { $0.bounds(for: page) }.filter { $0 != .zero && $0.width > 2 && $0.height > 2 }
+
+        var savedBounds: CodableCGRect? = nil
+        var didAddNative = false
+
+        if !validRects.isEmpty {
+            let unionBox = PDFHighlightGeometryHelper.unionBounds(for: validRects)
+            let pageBounds = page.bounds(for: .cropBox)
+            if pageBounds.width > 0, pageBounds.height > 0 {
+                savedBounds = CodableCGRect(
+                    x: Double((unionBox.minX - pageBounds.minX) / pageBounds.width),
+                    y: Double((unionBox.minY - pageBounds.minY) / pageBounds.height),
+                    width: Double(unionBox.width / pageBounds.width),
+                    height: Double(unionBox.height / pageBounds.height)
+                )
+            }
+            let ann = PDFAnnotation(bounds: unionBox, forType: nativeType, withProperties: nil)
+            ann.userName = annotationID.uuidString
+            ann.color = highlightColor
+            ann.contents = text
+            ann.shouldDisplay = true
+            ann.shouldPrint = true
+            ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: validRects, relativeTo: unionBox)
+            page.addAnnotation(ann)
+            didAddNative = true
+        } else {
+            let selBounds = selection.bounds(for: page)
+            if selBounds.width > 2 && selBounds.height > 2 {
+                let pageBounds = page.bounds(for: .cropBox)
+                if pageBounds.width > 0, pageBounds.height > 0 {
+                    savedBounds = CodableCGRect(
+                        x: Double((selBounds.minX - pageBounds.minX) / pageBounds.width),
+                        y: Double((selBounds.minY - pageBounds.minY) / pageBounds.height),
+                        width: Double(selBounds.width / pageBounds.width),
+                        height: Double(selBounds.height / pageBounds.height)
+                    )
+                }
+                let ann = PDFAnnotation(bounds: selBounds, forType: nativeType, withProperties: nil)
+                ann.userName = annotationID.uuidString
+                ann.color = highlightColor
+                ann.contents = text
+                ann.shouldDisplay = true
+                ann.shouldPrint = true
+                ann.quadrilateralPoints = PDFHighlightGeometryHelper.createQuadPoints(for: selBounds)
+                page.addAnnotation(ann)
+                didAddNative = true
+            }
+        }
+
+        // Repaint PDFView immediately so annotations appear with zero latency
+        if let pv = pdfViewReference {
+            pv.setCurrentSelection(nil, animate: false)
+            forcePageRedraw(pv, pageIndex: targetPageIndex)
+        }
+
+        guard didAddNative else { return }
+
+        // Persist to AnnotationStore and sync to SwiftData
+        let highlight = Annotation(
+            id: annotationID,
+            pdfID: pdf.id,
+            pageIndex: targetPageIndex,
+            chapterTitle: "Page \(targetPageIndex + 1)",
+            kind: annotationKind,
+            createdAt: Date(),
+            modifiedAt: Date(),
+            colorHex: color.rawValue,
+            selectedText: text,
+            bounds: savedBounds
+        )
+        AnnotationStore.shared.add(highlight)
+        let sdAnnotation = SDAnnotation(from: highlight)
+        modelContext.insert(sdAnnotation)
+        try? modelContext.save()
+        PDFAnnotationSyncBridge.shared.scheduleDebouncedDiskSync(for: pdf.id, in: doc, at: resolvedURL)
+
+        recentMarkupHistory.append(MarkupHistoryItem(id: annotationID, pageIndex: targetPageIndex, text: text, color: color, style: style))
+        undoneMarkupHistory.removeAll()
+        activeSelectionSnapshot = nil
+        selectedTextForHUD = nil
+        showToastMessage(toastTitle)
+        HapticEngine.selection()
+    }
+
     private func saveHighlight(text: String, color: PDFHighlightColor) {
         saveMarkup(text: text, color: color, style: .highlight)
     }
@@ -2384,6 +2518,7 @@ struct ProPDFReaderEngine: View {
         if let page = pdfView.document?.page(at: pageIndex) {
             page.displaysAnnotations = true
         }
+        pdfView.layoutDocumentView()
         pdfView.setNeedsDisplay()
         pdfView.documentView?.setNeedsDisplay()
     }
@@ -2629,6 +2764,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
     var onTapCenter: () -> Void
     var onTextSelectionChanged: (String?, PDFSelectionSnapshot?) -> Void
     var onHighlightRequested: (() -> Void)? = nil
+    var onHighlightSelectionDirect: ((PDFSelection, PDFPage, PDFHighlightColor) -> Void)? = nil
     var onScaleChanged: ((CGFloat) -> Void)? = nil
     var onHyperlinkSelected: ((Int, PDFPage) -> Void)? = nil
     var onScannedPageDetected: (() -> Void)? = nil
@@ -2723,14 +2859,15 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         tapGesture.require(toFail: twoFingerTap)
 
         // ── Finger Glide (word-snap) highlight gesture (finger only) ─────────────
-        // 180ms minimum press duration allows normal scrolling/swiping without triggering text selection.
+        // 40ms duration when in text highlight mode for responsive fluid touch-drag,
+        // 180ms minimum press duration when in normal reading allows scrolling/swiping.
         let fingerGlide = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleGlideSelection(_:)))
-        fingerGlide.minimumPressDuration = 0.18
+        let inkingState = InksyncInkingState.shared
+        let isTextHighlightGlide = isPencilMode && (inkingState.activeToolMode == .textHighlight)
+        fingerGlide.minimumPressDuration = isTextHighlightGlide ? 0.04 : 0.18
         fingerGlide.allowableMovement = 2000
         fingerGlide.cancelsTouchesInView = false
         fingerGlide.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
-        let inkingState = InksyncInkingState.shared
-        let isTextHighlightGlide = isPencilMode && (inkingState.activeToolMode == .textHighlight)
         fingerGlide.delegate = context.coordinator
         fingerGlide.isEnabled = isTextHighlightGlide || (!isPencilMode)
         pdfView.addGestureRecognizer(fingerGlide)
@@ -2802,6 +2939,10 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         }
         if context.coordinator.fingerGlide?.isEnabled != targetFingerGlide {
             context.coordinator.fingerGlide?.isEnabled = targetFingerGlide
+        }
+        let targetPressDuration: TimeInterval = isTextHighlightGlide ? 0.04 : 0.18
+        if context.coordinator.fingerGlide?.minimumPressDuration != targetPressDuration {
+            context.coordinator.fingerGlide?.minimumPressDuration = targetPressDuration
         }
 
         let prefs = EBookPreferences.shared
@@ -3127,9 +3268,12 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
                 if let selection = pdfView.currentSelection, let text = selection.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     selectionChanged(Notification(name: .PDFViewSelectionChanged, object: pdfView))
                     if parent.isPencilMode && InksyncInkingState.shared.activeToolMode == .textHighlight {
-                        parent.onHighlightRequested?()
-                        pdfView.setCurrentSelection(nil, animate: false)
-                        HapticEngine.selection()
+                        if let targetPage = selection.pages.first ?? pdfView.currentPage {
+                            let color = EBookPreferences.shared.defaultHighlightColor
+                            parent.onHighlightSelectionDirect?(selection, targetPage, color)
+                        } else {
+                            parent.onHighlightRequested?()
+                        }
                     } else {
                         HapticEngine.light()
                     }

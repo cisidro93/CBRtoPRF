@@ -117,7 +117,7 @@ public enum ReaderToolMode: String, Codable, CaseIterable, Identifiable, Sendabl
     public var iconSystemName: String {
         switch self {
         case .write: return "pencil.tip"
-        case .textHighlight: return "character.cursor.ibeam"
+        case .textHighlight: return "highlighter"
         case .eraser: return "eraser.fill"
         case .read: return "hand.point.up.left"
         }
@@ -161,7 +161,7 @@ public final class InksyncInkingState: ObservableObject {
         let defaultP1 = InkingToolPreset(name: "Black Fine", kind: .fineliner, color: .obsidian, width: 1.5)
         let defaultP2 = InkingToolPreset(name: "Cobalt Pen", kind: .fountainPen, color: .cobalt, width: 2.2)
         let defaultP3 = InkingToolPreset(name: "Crimson Critic", kind: .fineliner, color: .crimson, width: 1.8)
-        let defaultP4 = InkingToolPreset(name: "Honey Highlight", kind: .highlighter, color: .honeyYellow, width: 18.0)
+        let defaultP4 = InkingToolPreset(name: "Studio Brush", kind: .calligraphy, color: .obsidian, width: 3.5)
 
         self.favorites = [defaultP1, defaultP2, defaultP3, defaultP4]
         self.activePreset = defaultP1
@@ -256,11 +256,20 @@ public final class InksyncInkingState: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: "Inksync_InkingFavorites_v1"),
            let loaded = try? JSONDecoder().decode([InkingToolPreset].self, from: data),
            loaded.count == 4 {
-            self.favorites = loaded
+            self.favorites = loaded.map { preset in
+                if preset.kind == .highlighter {
+                    return InkingToolPreset(name: "Studio Brush", kind: .calligraphy, color: preset.color == .honeyYellow ? .obsidian : preset.color, width: 3.5)
+                }
+                return preset
+            }
         }
         if let activeData = UserDefaults.standard.data(forKey: "Inksync_ActiveInkingPreset_v1"),
            let loadedActive = try? JSONDecoder().decode(InkingToolPreset.self, from: activeData) {
-            self.activePreset = loadedActive
+            if loadedActive.kind == .highlighter {
+                self.activePreset = InkingToolPreset(name: "Studio Brush", kind: .calligraphy, color: .obsidian, width: 3.5)
+            } else {
+                self.activePreset = loadedActive
+            }
         }
         if let edgeRaw = UserDefaults.standard.string(forKey: "Inksync_DockEdge_v1"),
            let edge = InksyncDockEdge(rawValue: edgeRaw) {

@@ -141,8 +141,7 @@ public final class PDFPageCanvasProvider: NSObject, PKCanvasViewDelegate {
 
     private func configureCanvasPolicy(_ canvas: PassthroughPKCanvasView) {
         let isPad = UIDevice.current.userInterfaceIdiom == .pad
-        let prefs = EBookPreferences.shared
-        let pencilOnly = isPad && (AppSettingsManager.shared.conversionSettings.pencilOnlyDrawing || prefs.applePencilAutoDraw)
+        let pencilOnly = isPad && AppSettingsManager.shared.conversionSettings.pencilOnlyDrawing
         let isEraser = InksyncInkingState.shared.activeToolMode == .eraser
 
         canvas.overrideUserInterfaceStyle = .light
