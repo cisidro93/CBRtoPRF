@@ -32,7 +32,10 @@ struct EBookSettingsPanel: View {
     }
 
     private var visibleTabs: [PanelTab] {
-        PanelTab.allCases
+        if isPDF && !prefs.pdfReflowMode {
+            return [.themes, .layout]
+        }
+        return PanelTab.allCases
     }
 
     var body: some View {
@@ -70,6 +73,11 @@ struct EBookSettingsPanel: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 20)
                     .padding(.bottom, 40)
+                }
+            }
+            .onAppear {
+                if isPDF && !prefs.pdfReflowMode && activeTab == .typography {
+                    activeTab = .themes
                 }
             }
             .background(Color.inkBackground.ignoresSafeArea())
@@ -156,6 +164,22 @@ struct EBookSettingsPanel: View {
     // MARK: - Themes Tab
     private var themesTab: some View {
         VStack(spacing: 20) {
+            if isPDF {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color.inkGreen)
+                        .frame(width: 7, height: 7)
+                        .shadow(color: Color.inkGreen.opacity(0.8), radius: 3)
+                    Text("PDF Paper Tint & Night Reading Themes Active")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.inkTextPrimary)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.inkGreen.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+            }
+
             // Built-in themes
             ReaderSettingsSection(title: "Reading Themes", icon: "paintpalette") {
                 VStack(spacing: 12) {
@@ -354,6 +378,9 @@ struct EBookSettingsPanel: View {
         Button {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
                 prefs.themeRaw = theme.rawValue
+                if let bookID, prefs.bookThemes[bookID] != nil {
+                    prefs.bookThemes[bookID] = theme.rawValue
+                }
             }
             HapticEngine.light()
         } label: {

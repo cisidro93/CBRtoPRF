@@ -404,8 +404,9 @@ struct ProPDFReaderEngine: View {
             return .ignored
         }
         .task {
-            // Reset filter to original on every open so a persisted color-invert
-            // filter from a previous session cannot corrupt page rendering appearance.
+            // Apply per-book theme profile if configured for this document
+            prefs.applyBookTheme(bookID: pdf.id.uuidString)
+            // Reset quick filter override so saved document theme takes precedence
             activeFilterPreset = .original
             isReflowMode = prefs.pdfReflowMode
             AnnotationStore.shared.initialize(with: modelContext)
@@ -662,8 +663,33 @@ struct ProPDFReaderEngine: View {
         }
     }
 
+    private var effectiveThemeBackgroundColor: Color {
+        if isPencilMode && prefs.activeTheme.isDark {
+            return Color(hex: "#1A1A1A")
+        }
+        switch prefs.activeTheme {
+        case .paper:
+            return Color(hex: "#1E1E1E")
+        case .parchment:
+            return Color(hex: "#FBF7EF")
+        case .sepia:
+            return Color(hex: "#F8F0E3")
+        case .slate:
+            return Color(hex: "#1A2332")
+        case .night:
+            return Color(hex: "#0D0D0D")
+        case .oled:
+            return Color(hex: "#000000")
+        case .custom:
+            return Color(hex: prefs.customThemeBg)
+        }
+    }
+
     @ViewBuilder private func pdfCanvasView(document: PDFDocument) -> some View {
         ZStack {
+            effectiveThemeBackgroundColor
+                .ignoresSafeArea()
+
             ProPDFViewRepresentable(
                 pdf: pdf,
                 document: document,
@@ -672,6 +698,7 @@ struct ProPDFReaderEngine: View {
                 isCroppedMode: isCroppedMode,
                 isExpandedView: isExpandedView,
                 isPencilMode: isPencilMode,
+                themeBgColor: effectiveThemeBackgroundColor,
                 onPrevPage: {
                     advancePage(forward: false)
                 },
@@ -734,7 +761,12 @@ struct ProPDFReaderEngine: View {
                     performRedo(preferredPageIndex: pageIdx)
                 }
             )
-            .applyFilterPreset(activeFilterPreset)
+            .applyPDFTheme(
+                theme: prefs.activeTheme,
+                filter: prefs.readingFilter,
+                filterPresetOverride: activeFilterPreset,
+                isPencilMode: isPencilMode
+            )
             .ignoresSafeArea()
 
             if isPencilMode {
@@ -2531,6 +2563,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
     var isCroppedMode: Bool
     var isExpandedView: Bool
     var isPencilMode: Bool = false
+    var themeBgColor: Color = .clear
     var onPrevPage: () -> Void
     var onNextPage: () -> Void
     var onTapCenter: () -> Void
@@ -2557,7 +2590,7 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         // Horizontal paging feels most natural for a reader app on iOS
         pdfView.displayDirection = .horizontal
         pdfView.pageShadowsEnabled = true
-        pdfView.backgroundColor = .clear
+        pdfView.backgroundColor = UIColor(themeBgColor)
         pdfView.isOpaque = false
 
         let prefs = EBookPreferences.shared
@@ -2728,6 +2761,11 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         let targetMargins = isDual ? UIEdgeInsets(top: 0, left: 1, bottom: 0, right: 1) : UIEdgeInsets(top: 0, left: margin, bottom: 0, right: margin)
         if uiView.pageBreakMargins != targetMargins {
             uiView.pageBreakMargins = targetMargins
+        }
+
+        let targetBg = UIColor(themeBgColor)
+        if uiView.backgroundColor != targetBg {
+            uiView.backgroundColor = targetBg
         }
 
         if let sv = uiView.subviews.first(where: { $0 is UIScrollView }) as? UIScrollView {
