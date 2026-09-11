@@ -402,13 +402,14 @@ extension EBookPageCurlReader {
         private func setupPrimaryWebView() {
             let config = WKWebViewConfiguration()
             let controller = config.userContentController
-            controller.add(self, name: "metrics")
-            controller.add(self, name: "highlight")
-            controller.add(self, name: "onHighlightTapped")
-            controller.add(self, name: "onTextSelected")
-            controller.add(self, name: "onSelectionDismissed")
-            controller.add(self, name: "footnote")
-            controller.add(self, name: "scrollFraction")
+            let handlerProxy = WeakScriptMessageHandler(delegate: self)
+            controller.add(handlerProxy, name: "metrics")
+            controller.add(handlerProxy, name: "highlight")
+            controller.add(handlerProxy, name: "onHighlightTapped")
+            controller.add(handlerProxy, name: "onTextSelected")
+            controller.add(handlerProxy, name: "onSelectionDismissed")
+            controller.add(handlerProxy, name: "footnote")
+            controller.add(handlerProxy, name: "scrollFraction")
 
             let wv = HighlightableWebView(frame: UIScreen.main.bounds, configuration: config)
             wv.onHighlightRequested = { [weak self] in
@@ -2223,3 +2224,22 @@ class EBookPageContentViewController: UIViewController {
         self.hostedWebView = wv
     }
 }
+
+// ============================================================
+// MARK: - WeakScriptMessageHandler
+// Weak proxy to prevent circular retain cycles between WKUserContentController
+// and Coordinator (Paul Hudson / Apple WebKit leak prevention pattern).
+// ============================================================
+final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    private weak var delegate: WKScriptMessageHandler?
+
+    init(delegate: WKScriptMessageHandler) {
+        self.delegate = delegate
+        super.init()
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        delegate?.userContentController(userContentController, didReceive: message)
+    }
+}
+

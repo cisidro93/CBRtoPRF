@@ -162,6 +162,15 @@ final class SharedImportCoordinator: ObservableObject {
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
 
+        // Ensure the file is completely written before copying (e.g. AirDrop / share sheet transfers)
+        guard await isFileSettled(at: url) else {
+            Logger.shared.log(
+                "SharedImportCoordinator: Direct open file is not settled yet or zero-byte: \(url.lastPathComponent)",
+                category: "Import", type: .warning
+            )
+            return nil
+        }
+
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first ?? FileManager.default.temporaryDirectory

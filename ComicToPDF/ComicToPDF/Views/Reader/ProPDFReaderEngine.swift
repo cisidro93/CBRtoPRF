@@ -2362,6 +2362,9 @@ struct ProPDFViewRepresentable: UIViewRepresentable {
         NotificationCenter.default.removeObserver(coordinator, name: .PDFViewPageChanged, object: uiView)
         NotificationCenter.default.removeObserver(coordinator, name: .PDFViewSelectionChanged, object: uiView)
         NotificationCenter.default.removeObserver(coordinator, name: .PDFViewScaleChanged, object: uiView)
+        uiView.gestureRecognizers?.forEach { uiView.removeGestureRecognizer($0) }
+        uiView.delegate = nil
+        uiView.document = nil
     }
 
     class Coordinator: NSObject, PDFViewDelegate, UIGestureRecognizerDelegate, UIPencilInteractionDelegate {

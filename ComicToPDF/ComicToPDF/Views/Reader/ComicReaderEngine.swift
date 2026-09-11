@@ -21,7 +21,12 @@ enum ComicReadingMode: String, CaseIterable, Codable {
 @MainActor
 final class ComicImageCache: ObservableObject {
     private var cache = NSCache<NSNumber, UIImage>()
-    private var thumbnailCache = NSCache<NSNumber, UIImage>()
+    private var thumbnailCache: NSCache<NSNumber, UIImage> = {
+        let cache = NSCache<NSNumber, UIImage>()
+        cache.countLimit = ReaderCacheLimits.thumbnailScrubBar
+        cache.name = "com.inksyncpro.comicthumbnails"
+        return cache
+    }()
     private var accessQueue: [Int] = []
     private let fetchingQueueLock = NSLock()
     private var fetchingQueue: Set<Int> = [] // Track pending extractions
@@ -32,6 +37,11 @@ final class ComicImageCache: ObservableObject {
     private var averageSecondsPerPage: Double = 8.0
     private var isPrefetching = false
     private nonisolated(unsafe) var notificationObservers: [NSObjectProtocol] = []
+    
+    func cancelAllPrefetchTasks() {
+        inFlightPrefetchTasks.values.forEach { $0.cancel() }
+        inFlightPrefetchTasks.removeAll()
+    }
     
     private func storePrefetchTask(_ task: Task<Void, Never>, for index: Int) {
         inFlightPrefetchTasks[index] = task
@@ -108,6 +118,15 @@ final class ComicImageCache: ObservableObject {
         self.prefetchLimit = prefetchLimit
         self.sourceMode = pdf.sourceMode
         self.cache.totalCostLimit = 150 * 1024 * 1024 // 150 MB absolute RAM cap
+        let perfClass = ProcessInfo.processInfo.performanceClass
+        switch perfClass {
+        case .low:
+            self.cache.countLimit = ReaderCacheLimits.comicBufferLowDevice
+        case .medium:
+            self.cache.countLimit = ReaderCacheLimits.comicBufferStandardDevice
+        case .high:
+            self.cache.countLimit = ReaderCacheLimits.comicBufferProDevice
+        }
         let scheme = pdf.url.scheme?.lowercased() ?? ""
         
         if scheme == "virtual-omnibus" {
@@ -149,8 +168,11 @@ final class ComicImageCache: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.cache.removeAllObjects()
-                Logger.shared.log("ComicImageCache: Memory warning received. Cleared image cache.", category: "Memory", type: .warning)
+                guard let self = self else { return }
+                self.cancelAllPrefetchTasks()
+                self.cache.removeAllObjects()
+                self.thumbnailCache.removeAllObjects()
+                Logger.shared.log("ComicImageCache: Memory warning received. Cleared image & thumbnail cache and cancelled pending prefetch.", category: "Memory", type: .warning)
             }
         }
         self.notificationObservers.append(memObs)
@@ -1859,6 +1881,7 @@ struct ComicReaderEngine: View {
         }
         .onDisappear {
             BackTapManager.shared.isEnabled = false
+            cache.cancelAllPrefetchTasks()
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerJumpToPage)) { notification in
             if let pageIndex = notification.userInfo?["pageIndex"] as? Int, pageIndex >= 0, pageIndex < cache.pageCount {

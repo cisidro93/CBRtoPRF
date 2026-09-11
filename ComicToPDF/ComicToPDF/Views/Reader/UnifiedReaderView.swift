@@ -137,8 +137,10 @@ struct UnifiedReaderView: View {
                 return (.proPDF, "Native vector PDF document detected (%PDF binary signature or .pdf extension). Full text reflow, highlighting, and Apple Pencil active.")
             }
         } else if pdf.url.pathExtension.lowercased() == "epub" || pdf.name.lowercased().hasSuffix(".epub") {
-            if activeEngineOverride == .comic {
-                return (.comic, "Manual engine override active: comic mode requested for EPUB.")
+            if activeEngineOverride == .book {
+                return (.eBook, "Manual engine override active: eBook mode requested for EPUB.")
+            } else if activeEngineOverride == .comic || epubComicCheckResult == true || pdf.contentType == .hybrid {
+                return (.comic, "Image-heavy / comic EPUB detected. ComicReaderEngine active.")
             } else {
                 return (.eBook, "Standard reflowable or fixed-layout EPUB document. WebKit dual-page median layout active.")
             }
